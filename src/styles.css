@@ -1,0 +1,72 @@
+/*
+ * Стили «Авто»: свой акцент и то, чего нет в каркасе. Каркас — переменные,
+ * шапка, нижняя панель, кнопки, поля, сворачивание — в `shared/styles.css`,
+ * он подключается первым (`main.tsx`). Правила каркаса отсюда не
+ * переопределяются.
+ */
+
+:root {
+  /* Коралловый, в тон иконке: «Дневники» синие, «Делу Время» и «Тотальный
+     Учёт» тёплые, «Трапеза» зелёная, «Злотые» пурпурные — приложения семьи
+     на одном телефоне не должны путаться. На белом фоне коралл иконки
+     #ef6f5e как текст не читается — в светлой теме ступень темнее, та же
+     гамма. Остальные переменные берутся из каркаса ядра. */
+  --accent: #c2412f;
+  --on-accent: #ffffff;
+  --chart: #c2412f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #ef6f5e;
+    --on-accent: #1b1c1e;
+    /* Светлый акцент для столбцов слишком ярок на тёмном фоне: ступень
+       темнее, та же гамма. */
+    --chart: #d65a4a;
+  }
+}
+
+/* Главный экран без записей: строка и пояснение под ней, без панели —
+   это не ошибка и не предупреждение. */
+.home-empty p {
+  margin: 0 0 4px;
+}
+
+/* Строка про iPhone на главном: пунктиром, рядом с ней — «Скрыть».
+   Как у «Трапезы». */
+.stub {
+  color: var(--muted);
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.link-btn {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* «Что где лежит» в «Настройках»: хранилище и число записей. */
+.stats {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.stats td {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.stats .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-left: 12px;
+}
