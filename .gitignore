@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+# Build output
+dist
+.cache
+
+# Vite files
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+.vite/
+
+# Личные данные. Репозиторий кода публичный — записям здесь не место.
+# Косая черта в начале обязательна: без неё правило накрывает любую папку
+# с таким именем.
+/seed/
+*.seed.json
+# Копии данных: avto-ГГГГ-ММ-ДД.json, и .txt — через «Поделиться».
+avto-*.json
+avto-*.txt
+# Excel владельца (docs/01-Проект.md, «Что заменяем») живёт вне репозитория.
+*.xlsx
+*.xls

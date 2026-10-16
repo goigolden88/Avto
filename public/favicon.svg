@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#1b1c1e"/>
+  <!-- Коралловый круг -->
+  <circle cx="256" cy="256" r="200" fill="#ef6f5e"/>
+  <!-- Машина сбоку: кабина и кузов -->
+  <rect x="166" y="168" width="170" height="96" rx="40" fill="#1b1c1e"/>
+  <rect x="106" y="236" width="300" height="84" rx="32" fill="#1b1c1e"/>
+  <!-- Окна -->
+  <rect x="186" y="186" width="64" height="50" rx="18" fill="#ef6f5e"/>
+  <rect x="260" y="186" width="58" height="50" rx="18" fill="#ef6f5e"/>
+  <!-- Фара -->
+  <circle cx="390" cy="262" r="8" fill="#ececee"/>
+  <!-- Колёса: обод, шина, ступица -->
+  <circle cx="176" cy="318" r="48" fill="#ef6f5e"/>
+  <circle cx="336" cy="318" r="48" fill="#ef6f5e"/>
+  <circle cx="176" cy="318" r="40" fill="#1b1c1e"/>
+  <circle cx="336" cy="318" r="40" fill="#1b1c1e"/>
+  <circle cx="176" cy="318" r="14" fill="#ececee"/>
+  <circle cx="336" cy="318" r="14" fill="#ececee"/>
+</svg>

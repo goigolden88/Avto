@@ -1,0 +1,46 @@
+import { useEffect } from 'react'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { config } from './app/config.ts'
+import { db, sync } from './app/core.ts'
+import { CoreProvider } from './shared/ui/core.tsx'
+import { Layout, type Tab } from './shared/ui/Layout.tsx'
+import { Home } from './screens/Home.tsx'
+import { Settings } from './screens/Settings.tsx'
+
+/**
+ * Роутинг через хеш: на GitHub Pages обычные пути дают 404 при обновлении
+ * страницы — сервер ищет файл, которого нет. Всё после # до сервера не доходит.
+ *
+ * Синхронизация запускается здесь, один раз на приложение: проход идёт по
+ * таймеру и по событиям и не зависит от того, какой экран открыт. Не
+ * настроена — проход ничего не делает и в сеть не ходит.
+ *
+ * Общий интерфейс ядра — нижняя панель, «Настройки синхронизации»,
+ * сворачивание, «Что нового» — берёт базу и синхронизацию из `CoreProvider`
+ * (Я-03 «FamilyCore»); вкладки — пропсом.
+ */
+const TABS: readonly Tab[] = [
+  // Пока одна; журнал, маршруты и парковки придут своими задачами Авто-3.
+  { to: '/', name: 'Главная', end: true },
+]
+
+export function App() {
+  useEffect(() => sync?.startAutoSync(), [])
+
+  return (
+    <CoreProvider value={{ config, db, sync }}>
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<Layout tabs={TABS} />}>
+            <Route index element={<Home />} />
+            {/* «Настройки» — не вкладка: шестерёнка в шапке главного экрана. */}
+            <Route path="settings" element={<Settings />} />
+            {/* Незнакомый адрес — на главный: приложение открывается,
+                а не показывает пустоту. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </HashRouter>
+    </CoreProvider>
+  )
+}
