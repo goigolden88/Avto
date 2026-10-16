@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { config } from '../app/config.ts'
+import { RECORD_STORES } from '../app/model.ts'
 import { CHANGES } from '../changes.ts'
 import { IosNote } from '../shared/ui/Install.tsx'
 import { syncDot } from '../shared/ui/syncDot.ts'
@@ -13,13 +14,14 @@ import { WhatsNew } from '../shared/screens/WhatsNew.tsx'
  * обновления и строка о том, что записей пока нет: машины и журнал
  * приходят следующими задачами Авто-3.
  *
- * Пуста ли база — по всем хранилищам: запись может приехать синхронизацией
- * с другого устройства раньше, чем здесь появится журнал, и тогда «записей
- * нет» было бы неправдой.
+ * Пуста ли база — по всем хранилищам записей, кроме общих настроек: запись
+ * может приехать синхронизацией с другого устройства раньше, чем здесь
+ * появится журнал, и тогда «записей нет» было бы неправдой. А выбранная
+ * валюта записью не считается.
  */
 export function Home() {
   const mark = syncDot(useSyncStatus())
-  const first = useFirstRun(config.stores)
+  const first = useFirstRun(RECORD_STORES)
   const news = useWhatsNew(first, CHANGES)
 
   return (

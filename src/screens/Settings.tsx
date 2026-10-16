@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { config } from '../app/config.ts'
 import { db } from '../app/core.ts'
-import { SCHEMA_VERSION, SYNCED_STORES, type Prefs, type SyncedStore } from '../app/model.ts'
+import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, type Prefs, type SyncedStore } from '../app/model.ts'
 import { CHANGES } from '../changes.ts'
 import { CURRENCY_HINTS, CURRENCY_MAX, DEFAULT_CURRENCY, readCurrency, withCurrency } from '../modules/prefs/prefs.ts'
 import { formatDate, nowIso } from '../shared/core/dates.ts'
@@ -222,7 +222,7 @@ function About({ state }: { state: State }) {
         <InstallNote
           empty={
             state.status !== 'ready' ||
-            isEmptyBase(Object.fromEntries(state.rows.map((row) => [row.store, row.live])), config.stores)
+            isEmptyBase(Object.fromEntries(state.rows.map((row) => [row.store, row.live])), RECORD_STORES)
           }
         />
       </Fold>

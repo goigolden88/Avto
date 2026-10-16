@@ -188,6 +188,12 @@ export const V1_STORES = [
 /** Порядок, в котором хранилища пишут импорт и слепок: справочники раньше записей. */
 export const SYNCED_STORES = [...V1_STORES] as const satisfies readonly SyncedStore[]
 
+/**
+ * Хранилища с записями человека — все, кроме общих настроек. По ним главный
+ * экран решает, что «записей пока нет»: выбранная валюта записью не считается.
+ */
+export const RECORD_STORES: readonly SyncedStore[] = SYNCED_STORES.filter((store) => store !== 'prefs')
+
 export const SCHEMA_VERSION = 1
 
 /** Шагов нет: это первая схема (Р-20). Реестр заведён пустым с первого дня. */

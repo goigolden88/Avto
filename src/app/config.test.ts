@@ -5,7 +5,7 @@ import { createDb } from '../shared/core/db.ts'
 import { createLayout } from '../shared/core/layout.ts'
 import { checkConfig, LOCAL_STORES } from '../shared/core/model.ts'
 import { config } from './config.ts'
-import { SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type Entry, type StoreRecord } from './model.ts'
+import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type Entry, type StoreRecord } from './model.ts'
 
 /**
  * Сторож конфига «Авто» (Р-20).
@@ -72,6 +72,10 @@ describe('то, что не меняется после первого рели�
     expect([...config.v1Stores]).toEqual(TABLE.map((row) => row.store))
     expect([...config.stores]).toEqual([...config.v1Stores])
     expect([...SYNCED_STORES]).toHaveLength(8)
+  })
+
+  it('записи человека — все хранилища, кроме общих настроек: валюта записью не считается', () => {
+    expect([...RECORD_STORES]).toEqual(TABLE.map((row) => row.store).filter((store) => store !== 'prefs'))
   })
 
   it('хранилище точек — points, а не places: places у ядра — раскладка файлов (Р-12)', () => {
