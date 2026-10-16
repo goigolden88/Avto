@@ -19,9 +19,10 @@
  * который лежит в `src/` сейчас. Падает с ненулевым кодом, если браузер
  * сообщил об ошибке или проверка не сошлась.
  *
- * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой,
- * скелета Авто-3: главный экран, «Настройки», валюта, синхронизация, работа
- * без сети. Проверки прибавляются вместе с экранами.
+ * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
+ * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
+ * без сети) и задача 2 — машины и журнал. Проверки прибавляются вместе
+ * с экранами.
  */
 
 import { spawn } from 'node:child_process'
@@ -197,6 +198,14 @@ const HELPERS = `
   }
   const byText = (tag, label) =>
     [...document.querySelectorAll(tag)].find((el) => el.textContent.trim() === label)
+  const choose = (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+    setter.call(el, value)
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+  const field = (name) => document.querySelector('[name="' + name + '"]')
+  const optionByText = (name, label) =>
+    [...field(name).options].find((option) => option.textContent.trim() === label)?.value
 `
 
 // Точка с запятой между помощниками и шагом: шаг, начатый с `[` или `(`,
@@ -267,8 +276,8 @@ async function waitFor(expression, what) {
   return false
 }
 
-/** Главный экран дочитал базу: строка о записях выводится только после подсчёта. */
-const HOME_READY = `document.querySelector('.home-empty') !== null`
+/** Главный экран дочитал базу: журнал выводится только после чтения машин и записей. */
+const HOME_READY = `document.querySelector('.journal') !== null`
 
 /**
  * Ждёт, пока откроется новая страница: старая отдаёт метку `__smokeOld`,
@@ -564,12 +573,12 @@ async function scenario() {
     JSON.stringify(manifest.icons.map((icon) => icon.purpose ?? 'any')),
   )
 
-  // ─ Первый запуск: шапка «Авто», записей нет.
+  // ─ Первый запуск: шапка «Авто», машины нет — сначала завести.
   await open(APP)
   const start = await screen()
   check(
-    'главный экран: шапка «Авто», записей пока нет, первые — с журналом',
-    has(start, 'Авто') && has(start, 'Записей пока нет') && has(start, 'появятся с журналом'),
+    'главный экран: шапка «Авто», «Сначала заведите машину» и кнопка',
+    has(start, 'Авто') && has(start, 'Сначала заведите машину') && has(start, 'Завести машину'),
     start.replace(/\s+/g, ' ').slice(0, 160),
   )
   check('вкладка одна — «Главная»', (await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)) === 'Главная')
@@ -590,8 +599,13 @@ async function scenario() {
   await sleep(700)
   const settings = await screen()
   check(
-    'настройки открываются шестерёнкой: синхронизация, валюта, о приложении — свёрнуты',
-    has(settings, 'Синхронизация') && has(settings, 'Валюта') && has(settings, 'О приложении') && !has(settings, 'Версия схемы'),
+    'настройки открываются шестерёнкой: синхронизация, машины, валюта, о приложении — свёрнуты',
+    has(settings, 'Синхронизация') &&
+      has(settings, 'Машины') &&
+      has(settings, 'Валюта') &&
+      has(settings, 'О приложении') &&
+      !has(settings, 'Версия схемы') &&
+      !has(settings, 'Добавить машину'),
     settings.replace(/\s+/g, ' ').slice(0, 160),
   )
   check(
@@ -615,7 +629,13 @@ async function scenario() {
     line(about, 'Общие настройки'),
   )
   await unfold('Что нового')
-  check('«Что нового» — первая строка о рождении приложения', has(await screen(), 'Первая сборка «Авто»'))
+  const news = await screen()
+  check('«Что нового» — первая строка о рождении приложения', has(news, 'Первая сборка «Авто»'))
+  check(
+    '«Что нового» — строка о машинах и журнале',
+    has(news, '«Настройки» → «Машины»') && has(news, 'Журнал на главном экране'),
+    line(news, 'Журнал'),
+  )
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -645,6 +665,7 @@ async function scenario() {
   )
 
   await syncScenario()
+  await journalScenario()
 
   // ─ Service worker: без него нет ни офлайна, ни автообновления.
   const worker = await run(`Promise.race([
@@ -664,11 +685,212 @@ async function scenario() {
     has(cached, 'Авто') && controlled === true,
     `работник ${controlled ? 'управляет' : 'не управляет'} страницей`,
   )
+  check('без сети журнал на месте: заправка Лукойл', has(cached, 'Лукойл') && has(cached, '1 запись'), line(cached, 'Лукойл'))
   await go('/settings')
-  check('валюта записью не считается: на главном по-прежнему «записей пока нет»', has(cached, 'Записей пока нет'), line(cached, 'Запис'))
   const offlineCurrency = await foldSummary('Валюта')
   check('без сети данные на месте: валюта та, что пришла синхронизацией', offlineCurrency === '· $', offlineCurrency)
   await offline(false)
+}
+
+/**
+ * Машины и журнал (Авто-3, задача 2): завести машину, заправка двумя числами
+ * с третьим посчитанным, правка, удаление с подтверждением, отбор по виду и
+ * периоду, главная машина, архив и удаление машины. Валюта к этому моменту —
+ * «$», приехавшая синхронизацией.
+ */
+async function journalScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  const value = (name) => run(`document.querySelector('[name="${name}"]')?.value ?? null`)
+  const selected = (name) =>
+    run(`document.querySelector('[name="${name}"]')?.selectedOptions[0]?.textContent.trim() ?? null`)
+  const pressed = (group) =>
+    run(`document.querySelector('[aria-label="${group}"] [aria-pressed="true"]')?.textContent.trim() ?? null`)
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 200)
+  /** Записи журнала на экране — по строке на запись, через « | ». */
+  const rows = () =>
+    run(`[...document.querySelectorAll('.entry')].map((el) => el.innerText.replace(/\\s+/g, ' ').trim()).join(' | ')`)
+
+  // ─ «Завести машину» ведёт в «Настройки», блок «Машины» раскрыт.
+  await go('/')
+  await act(`byText('a', 'Завести машину')?.click()`)
+  await sleep(800)
+  const hash = await run('location.hash')
+  check('«Завести машину» ведёт в «Настройки» к «Машинам», блок раскрыт', hash === '#/settings?block=cars' && has(await screen(), 'Добавить машину'), hash)
+
+  // ─ Машина: название и топливо подсказкой.
+  await tap('Добавить машину')
+  await act(`set(field('car-name'), 'Солярис')`)
+  await sleep(100)
+  const hints = await run(`[...document.querySelectorAll('[aria-label="Подсказки топлива машины"] button')].map((el) => el.textContent.trim()).join(' ')`)
+  check('подсказки топлива машины — 95 92 ДТ газ', hints === '95 92 ДТ газ', hints)
+  await tap('95', 200)
+  await tap('Сохранить', 800)
+  let cars = await screen()
+  check('машина заведена и видна в списке с топливом', has(cars, 'Солярис') && has(cars, '95') && (await foldSummary('Машины')) === '· 1', flat(line(cars, 'Солярис')))
+  check('при одной машине выбора главной нет', (await act(`return field('main-car') === null`)) === true)
+
+  // Вторая — своё топливо строкой, а не подсказкой.
+  await tap('Добавить машину')
+  await act(`set(field('car-name'), 'Мамина'); set(field('car-fuel'), '98')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  cars = await screen()
+  check('своё топливо «98» вписывается строкой', has(cars, 'Мамина') && has(cars, '98'), flat(line(cars, 'Мамина')))
+  check('при двух машинах можно отметить главную', (await act(`return field('main-car') !== null`)) === true)
+  await act(`choose(field('main-car'), optionByText('main-car', 'Мамина'))`)
+  await sleep(500)
+
+  // ─ «Главная»: машины есть, записей нет.
+  await go('/')
+  const empty = await screen()
+  check('с машиной на главной «Записей пока нет» и «Добавить запись»', has(empty, 'Записей пока нет') && has(empty, 'Добавить запись'), flat(empty))
+
+  // ─ Новая запись: главная машина, сегодня, заправка, топливо машины.
+  await tap('Добавить запись')
+  const todayInPage = await run(`(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })()`)
+  const form = { car: await selected('car'), date: await value('date'), kind: await pressed('Вид записи'), fuel: await value('fuel') }
+  check(
+    'в новой записи — главная машина, сегодня, заправка, топливо машины',
+    form.car === 'Мамина' && form.date === todayInPage && form.kind === 'Заправка' && form.fuel === '98',
+    JSON.stringify(form),
+  )
+
+  // Смена машины меняет подставленное топливо.
+  await act(`choose(field('car'), optionByText('car', 'Солярис'))`)
+  await sleep(300)
+  check('смена машины подставляет её топливо', (await value('fuel')) === '95', await value('fuel'))
+
+  // Сохранить без чисел нельзя — видно, чего не хватает.
+  await tap('Сохранить')
+  const short = await screen()
+  check('заправку без чисел не сохранить: «два числа из трёх»', has(short, 'Нужны два числа из трёх') && has(short, 'Новая запись'), flat(line(short, 'два числа')))
+
+  // Литры и цена с запятой — сумма считается.
+  await act(`set(field('liters'), '40'); set(field('price'), '55,5'); set(field('station'), 'Лукойл')`)
+  await sleep(300)
+  check('видно, что сумма посчитается: 2 220 $', has(await screen(), 'Сумма посчитается: 2 220 $'), line(await screen(), 'посчита'))
+  await tap('Сохранить', 800)
+  let journal = await rows()
+  const dateShown = todayInPage.split('-').reverse().join('.')
+  check(
+    'заправка в журнале: дата, машина, вид, сумма в валюте настроек, литры, цена и АЗС',
+    has(journal, `${dateShown} · Заправка`) && has(journal, '2 220 $') && has(journal, 'Солярис · 40 л по 55,50 $/л · Лукойл'),
+    journal,
+  )
+
+  // ─ Правка: тап по записи — та же форма; три несходящихся числа — предупреждение.
+  await act(`document.querySelector('.entry')?.click()`)
+  await sleep(500)
+  check('тап по записи открывает форму с её числами', (await value('amount')) === '2220' && (await value('price')) === '55,5', await value('amount'))
+  await act(`set(field('amount'), '2000')`)
+  await sleep(300)
+  check('три числа не сходятся — предупреждение', has(await screen(), 'расходится больше чем на 1 %'), line(await screen(), 'расходится'))
+  await tap('Сохранить', 800)
+  journal = await rows()
+  check('правка видна в журнале, сумма — как введена', has(journal, '2 000 $') && !has(journal, '2 220 $'), journal)
+
+  // ─ Мойка: без суммы не сохранить; с суммой — в журнале.
+  await tap('Добавить запись')
+  check('новая запись — машина главная, а не последней записи', (await selected('car')) === 'Мамина', await selected('car'))
+  await tap('Мойка', 300)
+  const washForm = await screen()
+  check(
+    'у мойки поля — сумма и пробег, без литров',
+    (await act(`return field('liters') === null && field('amount') !== null && field('odometer') !== null`)) === true,
+    flat(washForm),
+  )
+  await tap('Сохранить')
+  check('мойку без суммы не сохранить', has(await screen(), 'Укажите сумму'))
+  await act(`set(field('amount'), '500')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  journal = await rows()
+  check('мойка в журнале, всего две записи', has(journal, 'Мойка') && has(await screen(), '2 записи'), journal)
+
+  // ─ Отбор по виду и по периоду.
+  await act(`choose(field('filter-kind'), 'wash')`)
+  await sleep(400)
+  journal = await rows()
+  check(
+    'отбор по виду: только мойка, «показано 1 из 2»',
+    has(await screen(), 'показано 1 из 2') && has(journal, 'Мойка') && !has(journal, 'Заправка'),
+    journal,
+  )
+  await act(`choose(field('filter-kind'), '')`)
+  await tap('Месяц', 400)
+  const monthTitle = await run(`document.querySelector('.period__title')?.textContent ?? ''`)
+  check('месяц — сначала текущий', has(await screen(), '2 записи') && /\d{4}$/.test(monthTitle), monthTitle)
+  await act(`document.querySelector('[aria-label="Назад"]')?.click()`)
+  await sleep(400)
+  journal = await screen()
+  check(
+    'прошлый месяц пуст: «За этот период записей нет» и сколько за всё время',
+    has(journal, 'За этот период записей нет') && has(journal, 'За всё время — 2 записи'),
+    flat(line(journal, 'период')),
+  )
+  await tap('Всё', 400)
+
+  // ─ Удаление записи — с подтверждением.
+  await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes('Мойка'))?.click()`)
+  await sleep(500)
+  await tap('Удалить', 300)
+  check('удаление записи спрашивает подтверждение', has(await screen(), 'Удалить запись? Это не отменить.'))
+  await tap('Удалить', 800)
+  journal = await rows()
+  check('запись удалена, осталась одна', has(await screen(), '1 запись') && !has(journal, 'Мойка'), journal)
+
+  // ─ Машины: переименование, архив, удаление.
+  await go('/settings')
+  await unfold('Машины')
+  await act(`[...document.querySelectorAll('.car')].find((el) => el.textContent.includes('Солярис'))?.click()`)
+  await sleep(400)
+  await act(`set(field('car-name'), 'Солярис 2')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+
+  // Удаление машины с записью: подтверждение называет записи и предлагает архив.
+  await act(`[...document.querySelectorAll('.car')].find((el) => el.textContent.includes('Солярис 2'))?.click()`)
+  await sleep(400)
+  await tap('Удалить', 400)
+  const ask = await screen()
+  check(
+    'удаление машины с записями: сколько удалится, «не отменить», архив вместо',
+    has(ask, 'удалится 1 запись журнала') && has(ask, 'Это не отменить') && has(ask, 'В архив') && has(ask, 'Удалить с записями'),
+    flat(line(ask, 'удалит')),
+  )
+  await tap('В архив', 800)
+  check('машина в архиве', has(await screen(), 'Солярис 2 · в архиве'), flat(line(await screen(), 'Солярис')))
+
+  // Главная (Мамина) без записей — удаляется с простым подтверждением.
+  await act(`[...document.querySelectorAll('.car')].find((el) => el.textContent.includes('Мамина'))?.click()`)
+  await sleep(400)
+  await tap('Удалить', 400)
+  check('удаление машины без записей спрашивает подтверждение', has(await screen(), 'Удалить «Мамина»?'), flat(line(await screen(), 'Мамина')))
+  await tap('Удалить', 800)
+  check('машины без записей нет', !has(await screen(), 'Мамина'))
+
+  // На главной: запись архивной машины на месте, с новым названием; машин для записи нет.
+  await go('/')
+  journal = await rows()
+  check(
+    'запись архивной машины в журнале, название — новое',
+    has(journal, 'Солярис 2 · 40 л') && has(await screen(), 'Все машины в архиве'),
+    journal,
+  )
+
+  // Вернуть из архива — машина снова в выборе новой записи.
+  await go('/settings')
+  await act(`[...document.querySelectorAll('.car')].find((el) => el.textContent.includes('Солярис 2'))?.click()`)
+  await sleep(400)
+  await tap('Вернуть из архива', 800)
+  check('машина вернулась из архива', has(await screen(), 'Солярис 2') && !has(await screen(), 'в архиве'))
+  await go('/')
+  await tap('Добавить запись')
+  check('главная удалена — подставлена машина последней записи', (await selected('car')) === 'Солярис 2', await selected('car'))
+  await tap('Отмена', 400)
 }
 
 /** Синхронизация с подставным репозиторием: первый проход и правка «с другого устройства». */

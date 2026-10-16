@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { config } from '../app/config.ts'
 import { db } from '../app/core.ts'
 import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, type Prefs, type SyncedStore } from '../app/model.ts'
@@ -11,6 +12,7 @@ import { ReportBug } from '../shared/ui/Report.tsx'
 import { SyncSettings } from '../shared/ui/SyncSettings.tsx'
 import { isEmptyBase } from '../shared/screens/firstRun.ts'
 import { ChangeList } from '../shared/screens/WhatsNew.tsx'
+import { CarsSettings } from './Cars.tsx'
 
 const LABELS: Record<SyncedStore, string> = {
   cars: 'Машины',
@@ -35,11 +37,15 @@ function describe(error: unknown): string {
  * Настройки разделами, свёрнутыми: в них заходят за чем-то одним, и экран
  * читается как оглавление. Устройство — «Трапезы» и «Злотых».
  *
- * Разделов три: «Синхронизация» — первой, «Валюта» (Р-17) и «О приложении».
- * Копия файлом, импорт, демо придут своими задачами Авто-3.
+ * Разделов четыре: «Синхронизация» — первой, «Машины» (Р-04), «Валюта»
+ * (Р-17) и «О приложении». Копия файлом, импорт, демо придут своими
+ * задачами Авто-3.
+ *
+ * `?block=cars` — пришли с «Главной» завести машину: «Машины» раскрываются.
  */
 export function Settings() {
   const [state, setState] = useState<State>({ status: 'loading' })
+  const [params] = useSearchParams()
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +71,8 @@ export function Settings() {
       </header>
 
       <SyncSettings onChanged={load} />
+
+      <CarsSettings reveal={params.get('block') === 'cars'} />
 
       <CurrencySettings />
 

@@ -8,21 +8,22 @@ import { useSyncStatus } from '../shared/ui/useSync.ts'
 import { useFirstRun } from '../shared/screens/useFirstRun.ts'
 import { useWhatsNew } from '../shared/screens/useWhatsNew.ts'
 import { WhatsNew } from '../shared/screens/WhatsNew.tsx'
+import { Journal } from './Journal.tsx'
+import { useLog, useMainCar } from './useLog.ts'
 
 /**
- * Главный экран. В скелете — шапка с шестерёнкой, «Что нового» после
- * обновления и строка о том, что записей пока нет: машины и журнал
- * приходят следующими задачами Авто-3.
+ * Главный экран: шапка с шестерёнкой, «Что нового» после обновления и
+ * журнал (Р-03). Без машины журнал зовёт её завести.
  *
- * Пуста ли база — по всем хранилищам записей, кроме общих настроек: запись
- * может приехать синхронизацией с другого устройства раньше, чем здесь
- * появится журнал, и тогда «записей нет» было бы неправдой. А выбранная
- * валюта записью не считается.
+ * Пуста ли база для «Что нового» и строки про iPhone — по всем хранилищам
+ * записей, кроме общих настроек: выбранная валюта записью не считается.
  */
 export function Home() {
   const mark = syncDot(useSyncStatus())
   const first = useFirstRun(RECORD_STORES)
   const news = useWhatsNew(first, CHANGES)
+  const log = useLog()
+  const main = useMainCar()
 
   return (
     <>
@@ -52,23 +53,11 @@ export function Home() {
         </section>
       )}
 
-      {/* Пока база не посчитана — ничего: мигнуть «записей нет» у человека
-          с данными хуже, чем опоздать на миг. */}
-      {first.counted && (
-        <section className="block home-empty">
-          {first.empty ? (
-            <>
-              <p>Записей пока нет.</p>
-              <p className="muted">Первые появятся с журналом — заправки, мойки, ремонты и штрафы придут следующими обновлениями.</p>
-            </>
-          ) : (
-            <>
-              <p>Записи в базе есть.</p>
-              <p className="muted">Показывать их начнёт журнал — он придёт следующими обновлениями.</p>
-            </>
-          )}
-        </section>
-      )}
+      {log.error && <p className="error block">База не открылась: {log.error}</p>}
+
+      {/* Пока журнал и главная машина не прочитаны — ничего: мигнуть «записей
+          нет» у человека с данными хуже, чем опоздать на миг. */}
+      {log.data && main.known && <Journal data={log.data} mainId={main.mainId} />}
     </>
   )
 }

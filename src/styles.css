@@ -32,6 +32,107 @@
   margin: 0 0 4px;
 }
 
+/* ─── Журнал ──────────────────────────────────────────────────────────────── */
+
+.journal__add {
+  margin-bottom: 16px;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.journal__count {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+/* Месяц или год со стрелками: название между ними во всё место. */
+.period__title {
+  flex: 1;
+  text-align: center;
+}
+
+/* Запись журнала — кнопка во всю ширину: тап открывает её форму. */
+.entry,
+.car {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.entry .muted,
+.car .muted {
+  font-size: 14px;
+}
+
+.entries {
+  gap: 0;
+}
+
+.entry__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entry__amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.car__name {
+  font-weight: 600;
+}
+
+/* Форма записи: заголовок мельче шапки, ошибки и строки — без отступа снизу:
+   промежутки задаёт сама форма. */
+.entry-form__title {
+  margin: 0;
+}
+
+.form p {
+  margin: 0;
+}
+
+.form .field > .row {
+  margin-bottom: 4px;
+}
+
+/* Три числа заправки не сходятся: не ошибка, но заметно. */
+.warning {
+  color: var(--due);
+}
+
+/* Подтверждение удаления: вопрос и кнопки отдельной панелью. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.main-car {
+  margin-top: 16px;
+}
+
 /* Строка про iPhone на главном: пунктиром, рядом с ней — «Скрыть».
    Как у «Трапезы». */
 .stub {
