@@ -1,0 +1,70 @@
+name: Деплой на GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Позволяет запустить вручную из вкладки Actions, не делая пустой коммит.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Одновременно катится только один деплой. Незапущенные из очереди
+# отбрасываются: последний пуш всё равно перекрывает предыдущий.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Сборка
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.has.outputs.app }}
+    steps:
+      # Ядро — подмодулем в src/shared: без этой строки сборка
+      # останется без ядра и упадёт непонятной ошибкой.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Пока кода нет (одни документы) — выкатывать нечего: зелёный пропуск.
+      - id: has
+        run: test -f package.json && echo app=yes >> "$GITHUB_OUTPUT" || echo "::notice::Нет package.json — выкатывать нечего"
+
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # ci, а не install: ставит ровно то, что в package-lock.json.
+      - if: steps.has.outputs.app == 'yes'
+        run: npm ci
+
+      - if: steps.has.outputs.app == 'yes'
+        run: npm test
+
+      - if: steps.has.outputs.app == 'yes'
+        run: npm run build
+
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Публикация
+    needs: build
+    if: needs.build.outputs.app == 'yes'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Требует Settings → Pages → Source = GitHub Actions.
+      # Иначе шаг падает с «Not Found».
+      - id: deployment
+        uses: actions/deploy-pages@v4

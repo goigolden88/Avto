@@ -45,3 +45,41 @@ jobs:
 
       - if: steps.has.outputs.app == 'yes'
         run: npm run build --if-present
+
+  # Отдельной задачей: если прогон упадёт из-за окружения, а не кода,
+  # это видно сразу, и тесты со сборкой от него не зависят.
+  smoke:
+    name: Прогон в браузере
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Прогона ещё нет (одни документы) — зелёный пропуск.
+      - id: has
+        run: test -f package.json && test -f scripts/smoke.mjs && echo app=yes >> "$GITHUB_OUTPUT" || echo "::notice::Нет scripts/smoke.mjs — прогонять нечего"
+
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - if: steps.has.outputs.app == 'yes'
+        run: npm ci
+
+      # Ubuntu 24.04 может не пустить Chrome в его песочницу — снимаем
+      # запрет на этой одноразовой машине, а не флагом --no-sandbox в коде.
+      - if: steps.has.outputs.app == 'yes'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # Прогрев: первый запуск Chrome на чистой машине — около 6 с, а прогон
+      # ждёт порт отладки 10 с. Без прогрева он падает не из-за кода.
+      - if: steps.has.outputs.app == 'yes'
+        run: timeout 30 google-chrome --headless=new --disable-gpu --dump-dom about:blank > /dev/null 2>&1 || true
+
+      # Браузер — /usr/bin/google-chrome, он есть на ubuntu-latest.
+      # Прогон сам собирает приложение.
+      - if: steps.has.outputs.app == 'yes'
+        run: npm run smoke
