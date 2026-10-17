@@ -232,7 +232,8 @@ function Overview({ ctx, onPair }: { ctx: Context; onPair: (pair: Pair) => void 
         </Fold>
       )}
 
-      <Fold id="routes:points" title="Точки" summary={String(points.length)} folded={points.length > 0}>
+      {/* Точки заводят редко — блок свёрнут, пока его не открыли. */}
+      <Fold id="routes:points" title="Точки" summary={String(points.length)} folded>
         {points.length === 0 && <p className="muted">Точек пока нет: «Дом», «Работа», «ТЦ Мега».</p>}
         <ul className="plain">
           {points.map((point) => (

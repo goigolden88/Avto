@@ -22,7 +22,8 @@
  * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
  * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22),
- * задача 4 — демо, задача 5 — импорт. Проверки прибавляются вместе с экранами.
+ * задача 4 — демо, задача 5 — импорт, задача 6 — маршруты. Проверки
+ * прибавляются вместе с экранами.
  */
 
 import { spawn } from 'node:child_process'
@@ -596,7 +597,8 @@ async function scenario() {
   )
   const link = await run(`document.querySelector('link[rel="manifest"]')?.getAttribute('href') ?? 'нет'`)
   check(`страница ссылается на ${BASE}${MANIFEST}`, link === `${BASE}${MANIFEST}`, link)
-  check('вкладка одна — «Главная»',(await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)) === 'Главная')
+  const tabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
+  check('внизу две вкладки — «Главная» и «Маршруты» (Р-24)', tabs === 'Главная, Маршруты', tabs)
   check('свежей установке «Что нового» не показано', !has(start, 'Что нового'))
   const database = await run(`indexedDB.databases().then((list) => list.map((each) => each.name).sort().join(', '))`)
   check(
@@ -686,6 +688,7 @@ async function scenario() {
   check('«Что нового» — строка о расчётах и «Итогах»', has(news, 'Блок «Итоги» над журналом'), line(news, 'Итоги'))
   check('«Что нового» — строка о демо', has(news, 'Демо: «Авто» можно посмотреть'), line(news, 'Демо:'))
   check('«Что нового» — строка об импорте', has(news, 'Импорт из Excel — «Настройки» → «Импорт записей»'), line(news, 'Импорт'))
+  check('«Что нового» — строка о маршрутах', has(news, 'Маршруты — новая вкладка внизу'), line(news, 'Маршруты —'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -716,6 +719,7 @@ async function scenario() {
 
   await syncScenario()
   await journalScenario()
+  await routesScenario()
 
   // ─ Адрес запуска установленного приложения — та же «Главная»: ?app=avto
   // ничего не переключает (Р-22).
@@ -760,6 +764,262 @@ async function scenario() {
   await offline(false)
 
   await importScenario()
+}
+
+/**
+ * Маршруты (Авто-3, задача 6; Р-12…Р-14, Р-24): вкладка, подсказка на
+ * пустой, точки с подставленным городом, маршруты с запретом одной точки,
+ * пары, замер через перезагрузку и строку на «Главной», поездка вручную
+ * с проверкой минут, сравнение пары, правка и удаление поездки, точки и
+ * маршрута, замер дольше 12 часов и замер удалённого маршрута. Машина к
+ * этому моменту одна — «Солярис 2».
+ */
+async function routesScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  const value = (name) => run(`document.querySelector('[name="${name}"]')?.value ?? null`)
+  const selected = (name) =>
+    run(`document.querySelector('[name="${name}"]')?.selectedOptions[0]?.textContent.trim() ?? null`)
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 200)
+  const READY = `document.querySelector('.routes .fold__btn') !== null`
+  /** Заголовки пар в обзоре — через « | ». */
+  const pairs = () => run(`[...document.querySelectorAll('.pair__head .car__name')].map((el) => el.textContent.trim()).join(' | ')`)
+  /** Маршруты в сравнении пары — по порядку, через « | ». */
+  const ranked = () =>
+    run(`[...document.querySelectorAll('.routes > section.block > .fold__head .fold__btn')].map((el) => el.textContent.trim()).join(' | ')`)
+  /** Блок маршрута в сравнении пары — выражение на странице. */
+  const block = (name) =>
+    `[...document.querySelectorAll('.routes > section.block')].find((el) => el.querySelector('.fold__btn')?.textContent.trim() === ${JSON.stringify(name)})`
+  const blockText = (name) => run(`${block(name)}?.innerText ?? ''`)
+  const tapIn = async (name, label, wait = 500) => {
+    await act(`[...(${block(name)}?.querySelectorAll('button') ?? [])].find((el) => el.textContent.trim() === ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  const openPair = async (title) => {
+    await act(`[...document.querySelectorAll('.pair__head')].find((el) => el.querySelector('.car__name')?.textContent.trim() === ${JSON.stringify(title)})?.click()`)
+    await sleep(600)
+  }
+  const openPoint = async (name) => {
+    await act(`[...document.querySelectorAll('.routes .car')].find((el) => el.querySelector('.car__name')?.textContent.trim() === ${JSON.stringify(name)})?.click()`)
+    await sleep(400)
+  }
+  const card = () => run(`document.querySelector('.timer')?.innerText ?? ''`)
+  const cardButtons = () => run(`[...document.querySelectorAll('.timer button')].map((el) => el.textContent.trim()).join(', ')`)
+  /** Сдвигает «Поехал» идущего замера в прошлое — мимо экрана, прямо в настройках устройства. */
+  const startedAgo = (ms) =>
+    run(`new Promise((done, fail) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const base = open.result
+        const tx = base.transaction('settings', 'readwrite')
+        const store = tx.objectStore('settings')
+        const get = store.get('tripTimer')
+        get.onsuccess = () => store.put({ key: 'tripTimer', value: { ...get.result.value, startedAt: Date.now() - ${ms} } })
+        tx.oncomplete = () => { base.close(); done(true) }
+        tx.onerror = () => fail(tx.error)
+      }
+    })`)
+  /** Живых поездок в базе — мимо экрана. */
+  const liveTrips = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const all = open.result.transaction('trips').objectStore('trips').getAll()
+        all.onsuccess = () => { open.result.close(); done(all.result.filter((trip) => !trip.deleted).length) }
+      }
+    })`)
+  const MINUTE = 60_000
+
+  // ─ Вкладка: пусто — подсказка про две точки и маршрут.
+  await go('/')
+  await act(`[...document.querySelectorAll('.tab')].find((el) => el.textContent.trim() === 'Маршруты')?.click()`)
+  await waitFor(READY, 'вкладка «Маршруты»')
+  const empty = await screen()
+  check(
+    'вкладка «Маршруты»: пусто — «сначала две точки, потом маршрут»',
+    (await run('location.hash')) === '#/routes' && has(empty, 'Маршрутов пока нет') && has(empty, 'Сначала заведите две точки'),
+    flat(empty),
+  )
+
+  // ─ Точки: имя и город обязательны; город второй — из первой.
+  await tap('Добавить точку')
+  await tap('Сохранить', 300)
+  check('точку без имени и города не сохранить', has(await screen(), 'Впишите имя точки') && has(await screen(), 'Впишите город'))
+  await act(`set(field('point-name'), 'Дом'); set(field('point-city'), 'Москва')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await tap('Добавить точку')
+  check('город новой точки — из последней заведённой', (await value('point-city')) === 'Москва', await value('point-city'))
+  await act(`set(field('point-name'), 'Работа')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('с двумя точками подсказка зовёт завести маршрут', has(await screen(), 'Точки есть — теперь заведите маршрут'), flat(line(await screen(), 'Точки есть')))
+
+  // ─ Маршрут: откуда и куда — из своих точек; одна точка — нельзя.
+  await tap('Добавить маршрут')
+  check(
+    'в новом маршруте подставлены первые две точки',
+    (await selected('route-from')) === 'Дом' && (await selected('route-to')) === 'Работа',
+    `${await selected('route-from')} → ${await selected('route-to')}`,
+  )
+  await act(`choose(field('route-to'), optionByText('route-to', 'Дом')); set(field('route-name'), 'по кругу')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check('«откуда» и «куда» — одна точка: понятная фраза, не сохранено', has(await screen(), '«Откуда» и «куда» — одна точка') && has(await screen(), 'Новый маршрут'))
+  await act(`choose(field('route-to'), optionByText('route-to', 'Работа')); set(field('route-name'), 'по МКАД'); set(field('route-link'), 'https://yandex.ru/maps/')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await tap('Добавить маршрут')
+  await act(`set(field('route-name'), 'через центр')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await tap('Добавить маршрут')
+  await act(`choose(field('route-from'), optionByText('route-from', 'Работа')); choose(field('route-to'), optionByText('route-to', 'Дом')); set(field('route-name'), 'по МКАД')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('маршруты собраны по парам: «Дом → Работа» и «Работа → Дом» — разные', (await pairs()) === 'Дом → Работа | Работа → Дом', await pairs())
+  check('у маршрута без поездок — «поездок нет», а не «0 мин»', has(await screen(), 'поездок нет') && !has(await screen(), '0 мин'), flat(line(await screen(), 'поездок')))
+
+  // ─ Замер: «Поехал» — карточка сверху, второго «Поехал» нет.
+  await act(`
+    const pair = [...document.querySelectorAll('.pair')].find((el) => el.querySelector('.car__name')?.textContent.trim() === 'Дом → Работа')
+    ;[...pair.querySelectorAll('.pair__route')].find((el) => el.textContent.includes('по МКАД'))?.querySelector('button')?.click()
+  `)
+  await sleep(600)
+  check('«Поехал» — карточка замера: маршрут и минуты', has(await card(), 'Замер · Дом → Работа · по МКАД') && has(await card(), '1 мин'), flat(await card()))
+  check('пока идёт замер, второго «Поехал» нет', (await act(`return byText('button', 'Поехал') === undefined`)) === true)
+  check('в карточке — «Приехал», «Вписать минуты», «Выбросить»', (await cardButtons()) === 'Приехал, Вписать минуты, Выбросить', await cardButtons())
+
+  // Перезагрузка: карточка на месте, минуты — от «Поехал».
+  await startedAgo(37 * MINUTE)
+  await reload(`document.querySelector('.timer') !== null`, 'карточка замера после перезагрузки')
+  check('после перезагрузки карточка на месте, минуты — от «Поехал»', /3[78] мин/.test(await card()), flat(await card()))
+
+  // На «Главной» — строка о замере со ссылкой на «Маршруты».
+  await go('/')
+  await waitFor(`document.querySelector('.timer-line') !== null`, 'строка о замере на «Главной»')
+  const homeLine = await run(`document.querySelector('.timer-line')?.innerText ?? ''`)
+  check(
+    'на «Главной» — строка о замере со ссылкой',
+    /Идёт замер: Дом → Работа · по МКАД, 3[78] мин в пути/.test(homeLine) && has(homeLine, 'На «Маршруты»'),
+    flat(homeLine),
+  )
+  await act(`byText('a', 'На «Маршруты»')?.click()`)
+  await waitFor(READY, 'вкладка «Маршруты» по ссылке')
+  await tap('Приехал', 800)
+  check('«Приехал» — карточки нет, поездка в базе', (await run(`document.querySelector('.timer') === null`)) === true && (await liveTrips()) === 1, `поездок ${await liveTrips()}`)
+
+  // ─ Пара: поездка замером, вписанная вручную — с проверкой минут.
+  await openPair('Дом → Работа')
+  check('тап по паре — сравнение пары', (await run('location.hash')).startsWith('#/routes?from='), await run('location.hash'))
+  check('замер: медиана с основанием, «все замером»', /3[78] мин — медиана 1 поездки/.test(await blockText('по МКАД')) && has(await blockText('по МКАД'), 'все замером'), flat(await blockText('по МКАД')))
+
+  await tap('Вписать поездку')
+  const todayInPage = await run(`(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })()`)
+  check(
+    'поездка вручную: сегодня, машина — последней записи',
+    (await value('trip-date')) === todayInPage && (await selected('trip-car')) === 'Солярис 2' && has(await screen(), 'Поездка вручную'),
+    `${await value('trip-date')}, ${await selected('trip-car')}`,
+  )
+  await act(`choose(field('trip-route'), optionByText('trip-route', 'Дом → Работа · через центр')); set(field('trip-start'), '07:20'); set(field('trip-minutes'), '0')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check('ноль минут — понятная фраза, поездка не сохранена', has(await screen(), 'Минуты — целое число больше нуля') && has(await screen(), 'Поездка вручную'))
+  await act(`set(field('trip-minutes'), '29'); set(field('trip-note'), 'ливень')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('маршруты пары — по возрастанию медианы: «через центр» сверху', (await ranked()) === 'через центр | по МКАД', await ranked())
+  const center = await blockText('через центр')
+  check(
+    'медиана с основанием, ручные, по часу, будни и выходные',
+    has(center, '29 мин — медиана 1 поездки') &&
+      has(center, 'вручную — 1 из 1') &&
+      has(center, '7 ч\t29 мин\t1 поездка') &&
+      has(center, 'Будни\t') &&
+      has(center, 'Выходные\t') &&
+      has(center, 'поездок нет'),
+    flat(center),
+  )
+
+  // ─ Поездки маршрута: заметка выделена; тап — правка и удаление.
+  await unfold('Поездки')
+  const noted = await run(`document.querySelector('.trip--noted')?.innerText ?? ''`)
+  check('поездка с заметкой выделена: дата, 07:20, 29 мин, «вручную», «ливень»', ['07:20', '29 мин', 'вручную', 'ливень'].every((part) => has(noted, part)), flat(noted))
+  await act(`document.querySelector('.trip')?.click()`)
+  await sleep(500)
+  check('тап по поездке — форма с её минутами', (await value('trip-minutes')) === '29' && has(await screen(), 'Поездка · вручную'), await value('trip-minutes'))
+  await act(`set(field('trip-minutes'), '31')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('правка поездки видна в медиане', has(await blockText('через центр'), '31 мин — медиана 1 поездки'), flat(await blockText('через центр')))
+  await act(`document.querySelector('.trip')?.click()`)
+  await sleep(500)
+  await tap('Удалить', 300)
+  check('удаление поездки спрашивает подтверждение', has(await screen(), 'Удалить поездку? Это не отменить.'))
+  await tap('Удалить', 800)
+  check('поездка удалена — у маршрута «поездок нет»', has(await blockText('через центр'), 'поездок нет') && (await liveTrips()) === 1, flat(await blockText('через центр')))
+
+  // ─ Точка: новое имя — везде; в маршрутах — не удаляется.
+  await tap('‹ Все маршруты')
+  await unfold('Точки')
+  await openPoint('Дом')
+  await act(`set(field('point-name'), 'Дом 2')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('новое имя точки — во всех парах', (await pairs()) === 'Дом 2 → Работа | Работа → Дом 2', await pairs())
+  await openPoint('Дом 2')
+  await tap('Удалить', 300)
+  check('точка в маршрутах не удаляется: «сначала удалите маршруты: 3»', has(await screen(), 'Сначала удалите маршруты: 3'), flat(line(await screen(), 'маршруты:')))
+  await tap('Понятно', 200)
+  await tap('Отмена', 400)
+
+  // ─ Маршрут: новое имя, поездки остаются; удаление — вопрос с числом поездок.
+  await openPair('Дом 2 → Работа')
+  await tapIn('по МКАД', 'Править')
+  await act(`set(field('route-name'), 'по МКАД и Ленинскому')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('новое имя маршрута, поездка на месте', (await ranked()) === 'по МКАД и Ленинскому | через центр' && has(await blockText('по МКАД и Ленинскому'), 'медиана 1 поездки'), await ranked())
+  await tapIn('по МКАД и Ленинскому', 'Править')
+  await tap('Удалить', 300)
+  const ask = await screen()
+  check('удаление маршрута: сколько поездок уйдёт, «не отменить»', has(ask, 'удалится 1 поездка') && has(ask, 'Это не отменить'), flat(line(ask, 'удалится')))
+  await tap('Удалить с поездками', 800)
+  check('маршрут удалён вместе с поездками', (await ranked()) === 'через центр' && (await liveTrips()) === 0, `${await ranked()}; поездок ${await liveTrips()}`)
+
+  // ─ Замер дольше 12 часов: «Приехал» нет — вписать минуты или выбросить.
+  await tapIn('через центр', 'Поехал')
+  await startedAgo(13 * 60 * MINUTE)
+  await reload(`document.querySelector('.timer') !== null`, 'карточка долгого замера')
+  check(
+    'замер дольше 12 часов: сказано прямо, «Приехал» нет',
+    has(await card(), 'Замер идёт больше 12 часов') && (await cardButtons()) === 'Вписать минуты, Выбросить',
+    `${flat(await card())}; ${await cardButtons()}`,
+  )
+  await tap('Вписать минуты', 300)
+  await act(`set(field('timer-minutes'), 'долго')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check('вписанные минуты — текстом: понятная фраза, не сохранено', has(await card(), 'Минуты — целое число больше нуля') && (await liveTrips()) === 0, flat(await card()))
+  await tap('Отмена', 300)
+  await tap('Выбросить', 600)
+  check('«Выбросить» — карточки нет, поездки нет', (await run(`document.querySelector('.timer') === null`)) === true && (await liveTrips()) === 0)
+
+  // ─ Маршрут замера удалён — карточка говорит об этом, остаётся «Выбросить».
+  await tapIn('через центр', 'Поехал')
+  await tapIn('через центр', 'Править')
+  await tap('Удалить', 300)
+  await tap('Удалить', 800)
+  check(
+    'маршрут замера удалён: «Маршрут удалён», только «Выбросить»',
+    has(await card(), 'Маршрут удалён') && (await cardButtons()) === 'Выбросить' && has(await screen(), 'У этой пары точек маршрутов нет'),
+    `${flat(await card())}; ${await cardButtons()}`,
+  )
+  await tap('Выбросить', 600)
+  await tap('‹ Все маршруты')
+  check('замера нет, в обзоре осталась пара «Работа → Дом 2»', (await run(`document.querySelector('.timer') === null`)) === true && (await pairs()) === 'Работа → Дом 2', await pairs())
 }
 
 /**
@@ -1268,6 +1528,26 @@ async function demoScenario() {
   const paid = await act(`return field('paid')?.checked === true && /^\\d{4}-\\d{2}-\\d{2}$/.test(field('paidDate')?.value ?? '')`)
   check('оплаченный штраф отмечен и с датой оплаты', paid === true, String(paid))
   await tap('Отмена', 400)
+
+  // ─ Маршруты демо: пары, на «Дом → Работа» два маршрута с медианами и разбивками.
+  await go('/routes')
+  await waitFor(`document.querySelector('.routes .fold__btn') !== null`, 'маршруты демо')
+  const demoPairs = await run(`[...document.querySelectorAll('.pair__head .car__name')].map((el) => el.textContent.trim()).join(' | ')`)
+  check('в демо — три пары точек', demoPairs === 'Дом → Работа | Дом → ТЦ Мега | Работа → Дом', demoPairs)
+  check('в демо у маршрутов — медиана с основанием', /\d+ мин — медиана \d+ поезд/.test(await screen()), flat(line(await screen(), 'медиана')))
+  await act(`[...document.querySelectorAll('.pair__head')].find((el) => el.textContent.includes('Дом → Работа'))?.click()`)
+  await sleep(600)
+  const demoRanked = await run(
+    `[...document.querySelectorAll('.routes > section.block > .fold__head .fold__btn')].map((el) => el.textContent.trim()).join(' | ')`,
+  )
+  const demoPair = await screen()
+  check(
+    'в демо «Дом → Работа»: два маршрута, по часу выезда, будни и выходные',
+    demoRanked.split(' | ').length === 2 && has(demoPair, 'По часу выезда') && has(demoPair, 'Будни и выходные') && has(demoPair, 'вручную — '),
+    demoRanked,
+  )
+  await unfold('Поездки')
+  check('в демо поездки с заметкой выделены', (await run(`document.querySelectorAll('.trip--noted').length`)) > 0)
 
   // ─ Импорта в демо нет (Я-44 «FamilyCore»): ни поля, ни выбора машины.
   await go('/settings')
