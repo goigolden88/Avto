@@ -5,7 +5,7 @@
  * то имя у ядра — раскладка файлов (Р-12).
  */
 
-import type { Point, Route } from '../../app/model.ts'
+import type { Parking, Point, Route } from '../../app/model.ts'
 
 /** Вместо имени, когда маршрут есть, а его точки нет: удалена или ещё не приехала. */
 export const MISSING_POINT = 'точка не найдена'
@@ -45,8 +45,20 @@ export function routesOfPoint(pointId: string, routes: readonly Route[]): Route[
   return routes.filter((route) => !route.deleted && (route.fromId === pointId || route.toId === pointId))
 }
 
-/** Почему точку не удалить: она в маршрутах. Null — удалить можно. */
-export function pointDeleteBlock(pointId: string, routes: readonly Route[]): string | null {
-  const count = routesOfPoint(pointId, routes).length
-  return count === 0 ? null : `Сначала удалите маршруты: ${count}`
+/** Живые места парковки у точки. */
+export function parkingsOfPoint(pointId: string, parkings: readonly Parking[]): Parking[] {
+  return parkings.filter((parking) => !parking.deleted && parking.pointId === pointId)
+}
+
+/**
+ * Почему точку не удалить: она в маршрутах или у мест парковки —
+ * «Сначала удалите маршруты: 2 и уберите точку у мест: 1». Null — удалить можно.
+ */
+export function pointDeleteBlock(pointId: string, routes: readonly Route[], parkings: readonly Parking[]): string | null {
+  const steps: string[] = []
+  const inRoutes = routesOfPoint(pointId, routes).length
+  const atParkings = parkingsOfPoint(pointId, parkings).length
+  if (inRoutes > 0) steps.push(`удалите маршруты: ${inRoutes}`)
+  if (atParkings > 0) steps.push(`уберите точку у мест: ${atParkings}`)
+  return steps.length === 0 ? null : `Сначала ${steps.join(' и ')}`
 }
