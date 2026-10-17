@@ -10,11 +10,13 @@ import { useFirstRun } from '../shared/screens/useFirstRun.ts'
 import { useWhatsNew } from '../shared/screens/useWhatsNew.ts'
 import { WhatsNew } from '../shared/screens/WhatsNew.tsx'
 import { Journal } from './Journal.tsx'
+import { TimerLine } from './RoutesTab.tsx'
 import { useLog, useMainCar } from './useLog.ts'
 
 /**
- * Главный экран: шапка с шестерёнкой, «Что нового» после обновления и
- * журнал (Р-03). Без машины журнал зовёт её завести.
+ * Главный экран: шапка с шестерёнкой, строка об идущем замере поездки,
+ * «Что нового» после обновления и журнал (Р-03). Без машины журнал зовёт
+ * её завести.
  *
  * Пустому устройству без токена «семья» — один раз предложение демо
  * (Я-45 «FamilyCore»): правила показа — ядра, хранилища записей — свои.
@@ -43,6 +45,9 @@ export function Home() {
           </div>
         </div>
       </header>
+
+      {/* Замер, начатый на «Маршрутах», виден и здесь (Р-13). */}
+      <TimerLine />
 
       {/* После обновления — что поменялось. Свежей установке — ничего. */}
       {news.show.length > 0 && <WhatsNew changes={news.show} onDone={news.dismiss} />}

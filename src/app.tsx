@@ -5,6 +5,7 @@ import { db, sync } from './app/core.ts'
 import { CoreProvider } from './shared/ui/core.tsx'
 import { Layout, type Tab } from './shared/ui/Layout.tsx'
 import { Home } from './screens/Home.tsx'
+import { RoutesTab } from './screens/RoutesTab.tsx'
 import { Settings } from './screens/Settings.tsx'
 
 /**
@@ -20,8 +21,10 @@ import { Settings } from './screens/Settings.tsx'
  * (Я-03 «FamilyCore»); вкладки — пропсом.
  */
 const TABS: readonly Tab[] = [
-  // Пока одна: журнал живёт на «Главной». Маршруты и парковки придут своими задачами Авто-3.
+  // Журнал живёт на «Главной». Парковки — не вкладкой, а своим экраном
+  // внутри «Маршрутов»: ими пользуются редко (Р-24).
   { to: '/', name: 'Главная', end: true },
+  { to: '/routes', name: 'Маршруты', end: false },
 ]
 
 export function App() {
@@ -33,6 +36,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Layout tabs={TABS} />}>
             <Route index element={<Home />} />
+            <Route path="routes" element={<RoutesTab />} />
             {/* «Настройки» — не вкладка: шестерёнка в шапке главного экрана. */}
             <Route path="settings" element={<Settings />} />
             {/* Незнакомый адрес — на главный: приложение открывается,
