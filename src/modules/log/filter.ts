@@ -65,7 +65,8 @@ export function shiftPeriod(period: PeriodChoice, step: number): PeriodChoice {
   }
 }
 
-function rangeOf(period: PeriodChoice): Period | null {
+/** Промежуток дней периода; «всё» — null, без границ. */
+export function rangeOf(period: PeriodChoice): Period | null {
   switch (period.kind) {
     case 'month':
       return monthPeriod(period.month)
