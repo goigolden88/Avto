@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { config } from '../app/config.ts'
-import { db } from '../app/core.ts'
-import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, type Prefs, type SyncedStore } from '../app/model.ts'
+import { db, importing } from '../app/core.ts'
+import {
+  RECORD_STORES,
+  SCHEMA_VERSION,
+  SYNCED_STORES,
+  type Prefs,
+  type StoreRecord,
+  type SyncedStore,
+} from '../app/model.ts'
 import { CHANGES } from '../changes.ts'
+import { defaultCarId, sortCars } from '../modules/log/cars.ts'
+import { IMPORT_SPECS, planLogImport } from '../modules/log/import.ts'
 import { CURRENCY_HINTS, CURRENCY_MAX, DEFAULT_CURRENCY, readCurrency, withCurrency } from '../modules/prefs/prefs.ts'
 import { formatDate, nowIso } from '../shared/core/dates.ts'
+import { ImportRecords } from '../shared/screens/ImportRecords.tsx'
 import { DemoSettings } from '../shared/ui/Demo.tsx'
 import { Fold } from '../shared/ui/Fold.tsx'
 import { InstallNote } from '../shared/ui/Install.tsx'
@@ -14,6 +24,7 @@ import { SyncSettings } from '../shared/ui/SyncSettings.tsx'
 import { isEmptyBase } from '../shared/screens/firstRun.ts'
 import { ChangeList } from '../shared/screens/WhatsNew.tsx'
 import { CarsSettings } from './Cars.tsx'
+import { useLog, useMainCar } from './useLog.ts'
 
 const LABELS: Record<SyncedStore, string> = {
   cars: 'Машины',
@@ -38,9 +49,9 @@ function describe(error: unknown): string {
  * Настройки разделами, свёрнутыми: в них заходят за чем-то одним, и экран
  * читается как оглавление. Устройство — «Трапезы» и «Злотых».
  *
- * Разделов пять: «Синхронизация» — первой, «Машины» (Р-04), «Валюта»
- * (Р-17), «Демо-данные» (Я-44, Я-45 «FamilyCore») и «О приложении». Копия
- * файлом и импорт придут своими задачами Авто-3.
+ * Разделов шесть: «Синхронизация» — первой, «Машины» (Р-04), «Валюта»
+ * (Р-17), «Импорт записей» (Р-10), «Демо-данные» (Я-44, Я-45 «FamilyCore»)
+ * и «О приложении». Копия файлом придёт своей задачей Авто-3.
  *
  * `?block=cars` — пришли с «Главной» завести машину: «Машины» раскрываются.
  */
@@ -76,6 +87,8 @@ export function Settings() {
       <CarsSettings reveal={params.get('block') === 'cars'} />
 
       <CurrencySettings />
+
+      <ImportSettings onChanged={load} />
 
       <DemoSettings />
 
@@ -184,6 +197,63 @@ function CurrencySettings() {
         </>
       )}
       {error && <p className="error">{error}</p>}
+    </Fold>
+  )
+}
+
+// ─── Импорт записей (Р-10) ─────────────────────────────────────────────────
+
+/**
+ * Excel владельца через ИИ: промпт, ответ, сводка, запись по кнопке —
+ * `ImportRecords` ядра. Своё — выбор машины: в формате её нет, все записи
+ * файла идут к выбранной. По умолчанию — главная этого устройства, иначе
+ * машина последней записи (Р-21); архивная выбирается тоже — история
+ * проданной машины.
+ *
+ * Смена машины сбрасывает разобранное: сводка не должна обещать записи
+ * одной машине, а записать другой.
+ */
+function ImportSettings({ onChanged }: { onChanged: () => Promise<void> }) {
+  const { data, error } = useLog()
+  const main = useMainCar()
+  const [chosen, setChosen] = useState<string | null>(null)
+
+  const cars = data ? sortCars(data.cars) : []
+  const fallback = data && main.known ? (defaultCarId(data.cars, data.entries, main.mainId) ?? cars[0]?.id ?? null) : null
+  const carId = chosen !== null && cars.some((car) => car.id === chosen) ? chosen : fallback
+
+  return (
+    <Fold id="settings:import" title="Импорт записей" folded>
+      {error && <p className="error">База не открылась: {error}</p>}
+      {data && cars.length === 0 && (
+        <p className="muted">Сначала заведите машину в «Машинах» выше: записи файла ложатся к ней.</p>
+      )}
+      {cars.length > 0 && carId !== null && (
+        <ImportRecords<StoreRecord>
+          key={carId}
+          planImport={(text, base, context) => planLogImport(importing.readImportFile(text), base, context, carId)}
+          importPrompt={(day) => importing.buildPrompt(IMPORT_SPECS, day)}
+          intro={
+            <>
+              <p className="muted">
+                Заправки, мойки, ремонты и штрафы из своей таблицы — через ИИ. Загружайте на одном устройстве:
+                остальные получат записи синхронизацией.
+              </p>
+              <label className="field">
+                <span>К какой машине отнести записи файла</span>
+                <select name="import-car" value={carId} onChange={(event) => setChosen(event.target.value)}>
+                  {cars.map((car) => (
+                    <option key={car.id} value={car.id}>
+                      {car.archived ? `${car.name} · в архиве` : car.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          }
+          onChanged={onChanged}
+        />
+      )}
     </Fold>
   )
 }
