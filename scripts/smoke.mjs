@@ -689,6 +689,7 @@ async function scenario() {
   check('«Что нового» — строка о демо', has(news, 'Демо: «Авто» можно посмотреть'), line(news, 'Демо:'))
   check('«Что нового» — строка об импорте', has(news, 'Импорт из Excel — «Настройки» → «Импорт записей»'), line(news, 'Импорт'))
   check('«Что нового» — строка о маршрутах', has(news, 'Маршруты — новая вкладка внизу'), line(news, 'Маршруты —'))
+  check('«Что нового» — строка о парковках', has(news, 'Парковки — ссылкой «Парковки» на вкладке «Маршруты»'), line(news, 'Парковки —'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -720,6 +721,7 @@ async function scenario() {
   await syncScenario()
   await journalScenario()
   await routesScenario()
+  await parkingsScenario()
 
   // ─ Адрес запуска установленного приложения — та же «Главная»: ?app=avto
   // ничего не переключает (Р-22).
@@ -1020,6 +1022,259 @@ async function routesScenario() {
   await tap('Выбросить', 600)
   await tap('‹ Все маршруты')
   check('замера нет, в обзоре осталась пара «Работа → Дом 2»', (await run(`document.querySelector('.timer') === null`)) === true && (await pairs()) === 'Работа → Дом 2', await pairs())
+}
+
+/**
+ * Парковки (Авто-3, задача 6, #21; Р-16, Р-24): ссылка с «Маршрутов» и назад,
+ * подсказка на пустом, места с подставленным городом и точкой, по городу,
+ * отметки с проверкой минут, доли, по часу и дню недели, медиана минут,
+ * правка и удаление отметки и места, точка у места не удаляется, точка
+ * места удалена на другом устройстве, свёрнутое помнится. К этому моменту
+ * точки — «Дом 2» и «Работа», маршрут — «Работа → Дом 2 · по МКАД».
+ */
+async function parkingsScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  const value = (name) => run(`document.querySelector('[name="${name}"]')?.value ?? null`)
+  const selected = (name) =>
+    run(`document.querySelector('[name="${name}"]')?.selectedOptions[0]?.textContent.trim() ?? null`)
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 240)
+  const READY = `document.querySelector('.parkings .row') !== null`
+  /** Заголовки блоков экрана — через « | ». */
+  const folds = () => run(`[...document.querySelectorAll('.parkings .fold__btn')].map((el) => el.textContent.trim()).join(' | ')`)
+  /** Строка места в списке — выражение на странице. */
+  const place = (where) =>
+    `[...document.querySelectorAll('.parking')].find((el) => el.querySelector('.car__name')?.textContent.trim() === ${JSON.stringify(where)})`
+  const placeText = (where) => run(`${place(where)}?.innerText ?? ''`)
+  const openPlace = async (where) => {
+    await act(`${place(where)}?.querySelector('.parking__open')?.click()`)
+    await sleep(600)
+  }
+  const markAt = async (where) => {
+    await act(`${place(where)}?.querySelector('.btn')?.click()`)
+    await sleep(500)
+  }
+  /** Живых отметок в базе — мимо экрана. */
+  const liveVisits = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const all = open.result.transaction('parkingVisits').objectStore('parkingVisits').getAll()
+        all.onsuccess = () => { open.result.close(); done(all.result.filter((visit) => !visit.deleted).length) }
+      }
+    })`)
+  /** Точку удалили на другом устройстве: метка `deleted` — мимо экрана. */
+  const deletePointElsewhere = (name) =>
+    run(`new Promise((done, fail) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const base = open.result
+        const tx = base.transaction('points', 'readwrite')
+        const store = tx.objectStore('points')
+        const all = store.getAll()
+        all.onsuccess = () => {
+          const point = all.result.find((each) => each.name === ${JSON.stringify(name)})
+          store.put({ ...point, deleted: true })
+        }
+        tx.oncomplete = () => { base.close(); done(true) }
+        tx.onerror = () => fail(tx.error)
+      }
+    })`)
+  const todayInPage = await run(`(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })()`)
+  const weekdayInPage = await run(`['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'][new Date().getDay()]`)
+
+  // ─ Ссылка с «Маршрутов»; отдельной вкладки нет; пусто — подсказка.
+  await go('/routes')
+  await waitFor(`document.querySelector('.routes .fold__btn') !== null`, 'вкладка «Маршруты»')
+  check('на «Маршрутах» — ссылка «Парковки»', (await act(`return byText('a', 'Парковки ›') !== undefined`)) === true)
+  await act(`byText('a', 'Парковки ›')?.click()`)
+  await waitFor(READY, 'экран парковок')
+  const empty = await screen()
+  const tabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
+  check(
+    'экран парковок по ссылке: пусто — «завести место, потом отметки», вкладок внизу по-прежнему две',
+    (await run('location.hash')) === '#/routes/parkings' &&
+      has(empty, 'Мест пока нет') &&
+      has(empty, 'Сначала заведите место') &&
+      has(empty, 'потом ставьте отметки') &&
+      tabs === 'Главная, Маршруты',
+    `${await run('location.hash')}; ${tabs}; ${flat(empty)}`,
+  )
+  await act(`byText('a', '‹ Маршруты')?.click()`)
+  await sleep(600)
+  check('«‹ Маршруты» — назад на «Маршруты»', (await run('location.hash')) === '#/routes', await run('location.hash'))
+  await act(`byText('a', 'Парковки ›')?.click()`)
+  await waitFor(READY, 'экран парковок ещё раз')
+
+  // ─ Место: «где» и город обязательны; город — из последней точки, потом — из последнего места.
+  await tap('Добавить место')
+  check('город первого места — из последней точки', (await value('parking-city')) === 'Москва', await value('parking-city'))
+  await tap('Сохранить', 300)
+  check('место без «где» не сохранить', has(await screen(), 'Впишите, где место') && has(await screen(), 'Новое место'))
+  await act(`set(field('parking-where'), 'вдоль забора'); choose(field('parking-point'), optionByText('parking-point', 'Работа')); set(field('parking-price'), 'бесплатно'); set(field('parking-link'), 'https://yandex.ru/maps/')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await tap('Добавить место')
+  check('город следующего места — из последнего места', (await value('parking-city')) === 'Москва', await value('parking-city'))
+  await act(`set(field('parking-where'), 'у вокзала'); set(field('parking-city'), 'Тверь')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('места собраны по городу', (await folds()) === 'Москва | Тверь', await folds())
+  const fence = await placeText('вдоль забора')
+  check('у места с точкой — имя точки и цена; отметок нет — «отметок нет», а не «0 %»', has(fence, 'у точки «Работа» · бесплатно') && has(fence, 'отметок нет') && !has(fence, '%'), flat(fence))
+
+  // ─ Отметка: «Отметить» у места — место подставлено, дата — сегодня, время — сейчас.
+  await markAt('вдоль забора')
+  check(
+    'отметка у места: место подставлено, сегодня, время — сейчас',
+    (await selected('visit-place')) === 'вдоль забора · Москва' &&
+      (await value('visit-date')) === todayInPage &&
+      /^\d\d:\d\d$/.test((await value('visit-time')) ?? ''),
+    `${await selected('visit-place')}, ${await value('visit-date')}, ${await value('visit-time')}`,
+  )
+  await tap('Сохранить', 300)
+  check('без результата отметку не сохранить', has(await screen(), 'Отметьте, как встали') && has(await screen(), 'Новая отметка'))
+  await tap('сразу', 200)
+  check('результат — одной кнопкой из трёх', (await run(`[...document.querySelectorAll('[aria-label="Как встали"] button')].map((el) => el.textContent.trim() + (el.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(', ')`)) === 'сразу*, с трудом, мест нет')
+  await act(`set(field('visit-minutes'), '-3')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check('минус в минутах поиска — понятная фраза, не сохранено', has(await screen(), 'Минуты поиска — целое число от 0') && (await liveVisits()) === 0)
+  await act(`set(field('visit-minutes'), 'долго')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check('текст в минутах поиска — понятная фраза, не сохранено', has(await screen(), 'Минуты поиска — целое число от 0') && (await liveVisits()) === 0)
+  await act(`set(field('visit-minutes'), '0'); set(field('visit-time'), '08:10')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+
+  // Общая «Отметить» — место последней отметки.
+  await tap('Отметить')
+  check('общая «Отметить» — место последней отметки', (await selected('visit-place')) === 'вдоль забора · Москва', await selected('visit-place'))
+  await tap('с трудом', 200)
+  await act(`set(field('visit-time'), '08:40'); set(field('visit-minutes'), '7')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await tap('Отметить')
+  await tap('мест нет', 200)
+  await act(`set(field('visit-time'), '18:20'); set(field('visit-note'), 'ярмарка')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('три отметки в базе', (await liveVisits()) === 3, `отметок ${await liveVisits()}`)
+
+  // ─ Место: доли, по часу и дню недели, медиана минут с основанием.
+  await openPlace('вдоль забора')
+  check('тап по месту — его экран', (await run('location.hash')).startsWith('#/routes/parkings?place='), await run('location.hash'))
+  let view = await screen()
+  check(
+    'доли с числом отметок; медиана минут — без отметки без минут',
+    has(view, 'сразу 33 %, с трудом 33 %, мест нет 33 % — по 3 отметкам') &&
+      has(view, 'Поиск: 4 мин — медиана 2 отметок') &&
+      has(view, 'без минут — 1 из 3'),
+    flat(view),
+  )
+  check(
+    'по часу — только часы с отметками, с числом отметок',
+    has(view, '8 ч\t50 %\t50 %\t0 %\t2 отметки') && has(view, '18 ч\t0 %\t0 %\t100 %\t1 отметка') && !has(view, '9 ч\t'),
+    flat(line(view, ' ч\t')),
+  )
+  check('по дню недели — только дни с отметками', has(view, `${weekdayInPage}\t33 %\t33 %\t33 %\t3 отметки`), flat(line(view, `${weekdayInPage}\t`)))
+  const noted = await run(`document.querySelector('.visit--noted')?.innerText ?? ''`)
+  check('отметка с заметкой выделена: время, результат, заметка', ['18:20', 'мест нет', 'ярмарка'].every((part) => has(noted, part)), flat(noted))
+  check('ноль минут в списке — «встал без поиска»', has(view, 'встал без поиска') && has(view, '7 мин поиска'), flat(line(view, 'поиска')))
+
+  // ─ Свёрнутое помнится после перезагрузки.
+  await act(`byText('button', 'Когда проще встать')?.click()`)
+  await sleep(400)
+  await reload(`document.querySelector('.parkings .fold__btn') !== null`, 'место после перезагрузки')
+  await sleep(500)
+  check(
+    'свёрнутый блок места после перезагрузки свёрнут',
+    (await run(`[...document.querySelectorAll('.fold__btn')].find((el) => el.textContent.trim() === 'Когда проще встать')?.getAttribute('aria-expanded')`)) === 'false' &&
+      !has(await screen(), 'По часу'),
+  )
+  await unfold('Когда проще встать')
+
+  // ─ Отметка: тап — правка; удаление — с вопросом.
+  await act(`document.querySelector('.visit--noted')?.click()`)
+  await sleep(500)
+  check('тап по отметке — форма с её данными', has(await screen(), 'Отметка') && (await value('visit-note')) === 'ярмарка' && (await value('visit-time')) === '18:20', await value('visit-note'))
+  await act(`set(field('visit-minutes'), '15')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  view = await screen()
+  check('правка отметки видна в медиане; без минут не осталось', has(view, 'Поиск: 7 мин — медиана 3 отметок') && !has(view, 'без минут —'), flat(line(view, 'Поиск')))
+  await act(`document.querySelector('.visit--noted')?.click()`)
+  await sleep(500)
+  await tap('Удалить', 300)
+  check('удаление отметки спрашивает подтверждение', has(await screen(), 'Удалить отметку? Это не отменить.'))
+  await tap('Удалить', 800)
+  check('отметка удалена — по 2 отметкам', has(await screen(), '— по 2 отметкам') && (await liveVisits()) === 2, flat(line(await screen(), 'по 2')))
+
+  // ─ Место: правка — отметки остаются.
+  await tap('Править')
+  await act(`set(field('parking-where'), 'вдоль забора у работы')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check(
+    'новое имя места, отметки на месте',
+    (await run(`document.querySelector('.parkings h2')?.textContent.trim() ?? ''`)) === 'вдоль забора у работы' && has(await screen(), '— по 2 отметкам'),
+    await run(`document.querySelector('.parkings h2')?.textContent.trim() ?? ''`),
+  )
+
+  // ─ Точка у места не удаляется — фраза называет и маршруты, и места.
+  await go('/routes')
+  await waitFor(`document.querySelector('.routes .fold__btn') !== null`, 'вкладка «Маршруты»')
+  await unfold('Точки')
+  await act(`[...document.querySelectorAll('.routes .car')].find((el) => el.querySelector('.car__name')?.textContent.trim() === 'Работа')?.click()`)
+  await sleep(400)
+  await tap('Удалить', 300)
+  check(
+    'точка в маршрутах и у мест не удаляется: «сначала удалите маршруты: 1 и уберите точку у мест: 1»',
+    has(await screen(), 'Сначала удалите маршруты: 1 и уберите точку у мест: 1'),
+    flat(line(await screen(), 'Сначала')),
+  )
+  await tap('Понятно', 200)
+  await tap('Отмена', 400)
+
+  // ─ Точку места удалили на другом устройстве — место остаётся, «точка не найдена».
+  await tap('Добавить точку')
+  await act(`set(field('point-name'), 'Вокзал'); set(field('point-city'), 'Тверь')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await act(`byText('a', 'Парковки ›')?.click()`)
+  await waitFor(READY, 'экран парковок')
+  await openPlace('у вокзала')
+  await tap('Отметить')
+  await tap('сразу', 200)
+  await tap('Сохранить', 800)
+  await tap('Править')
+  await act(`choose(field('parking-point'), optionByText('parking-point', 'Вокзал'))`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  await deletePointElsewhere('Вокзал')
+  await reload(`document.querySelector('.parkings h2') !== null`, 'место после удаления точки')
+  await sleep(500)
+  check(
+    'точка места удалена на другом устройстве: место на месте, «точка не найдена», отметка цела',
+    has(await screen(), 'Тверь · точка не найдена') && has(await screen(), '— по 1 отметке'),
+    flat(line(await screen(), 'Тверь')),
+  )
+
+  // ─ Удаление места с отметками — вопрос с числом; уходят и место, и отметки.
+  await tap('‹ Все места')
+  await openPlace('вдоль забора у работы')
+  await tap('Править')
+  await tap('Удалить', 300)
+  check('удаление места: сколько отметок уйдёт, «не отменить»', has(await screen(), 'удалятся 2 отметки') && has(await screen(), 'Это не отменить'), flat(line(await screen(), 'удалятся')))
+  await tap('Удалить с отметками', 800)
+  check(
+    'место удалено вместе с отметками, экран — список мест',
+    (await run('location.hash')) === '#/routes/parkings' && (await folds()) === 'Тверь' && (await liveVisits()) === 1,
+    `${await run('location.hash')}; ${await folds()}; отметок ${await liveVisits()}`,
+  )
 }
 
 /**
@@ -1548,6 +1803,24 @@ async function demoScenario() {
   )
   await unfold('Поездки')
   check('в демо поездки с заметкой выделены', (await run(`document.querySelectorAll('.trip--noted').length`)) > 0)
+
+  // ─ Парковки демо: места по городу, у работы утром сразу, вечером мест нет.
+  await go('/routes/parkings')
+  await waitFor(`document.querySelector('.parkings .fold__btn') !== null`, 'парковки демо')
+  const demoCities = await run(`[...document.querySelectorAll('.parkings .fold__btn')].map((el) => el.textContent.trim()).join(' | ')`)
+  check('в демо места в двух городах', demoCities === 'Москва | Тверь', demoCities)
+  await act(`[...document.querySelectorAll('.parking')].find((el) => el.textContent.includes('вдоль забора у работы'))?.querySelector('.parking__open')?.click()`)
+  await sleep(600)
+  const demoPlace = await screen()
+  check(
+    'в демо у работы: утром сразу, вечером почти нет мест; медиана минут; отметки с заметкой',
+    has(demoPlace, '8 ч\t100 %\t0 %\t0 %') &&
+      /18 ч\t\d+ %\t\d+ %\t(5\d|6\d|7\d|8\d|9\d|100) %/.test(demoPlace) &&
+      /Поиск: \d+ мин — медиана \d+ отмет/.test(demoPlace) &&
+      has(demoPlace, 'без минут —') &&
+      (await run(`document.querySelectorAll('.visit--noted').length`)) > 0,
+    flat(line(demoPlace, '18 ч')),
+  )
 
   // ─ Импорта в демо нет (Я-44 «FamilyCore»): ни поля, ни выбора машины.
   await go('/settings')
