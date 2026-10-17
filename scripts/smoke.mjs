@@ -21,8 +21,8 @@
  *
  * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
- * без сети) и задача 2 — машины и журнал. Проверки прибавляются вместе
- * с экранами.
+ * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22).
+ * Проверки прибавляются вместе с экранами.
  */
 
 import { spawn } from 'node:child_process'
@@ -539,6 +539,14 @@ async function onGitHub({ requestId, request }) {
 const BASE = '/Avto/'
 
 /**
+ * Свои адреса установки (Р-22): первая установка на Android застряла,
+ * новый адрес манифеста — новая установка. Больше не меняются.
+ */
+const MANIFEST = 'avto.webmanifest'
+const INSTALL_ID = `${BASE}avto`
+const START_URL = `${BASE}?app=avto`
+
+/**
  * Скелет Авто-3: сайт по своему адресу, манифест и иконки, главный экран,
  * «Настройки», валюта через перезагрузку, синхронизация с подставным
  * репозиторием, работа без сети. Любая ошибка в консоли валит прогон.
@@ -555,10 +563,15 @@ async function scenario() {
   const base = new URL(APP).pathname
   check(`приложение отдаётся по ${BASE}`, base === BASE, APP)
 
-  const manifest = await fetch(new URL('manifest.webmanifest', APP)).then((r) => r.json())
+  const manifest = await fetch(new URL(MANIFEST, APP)).then((r) => r.json())
   const paths = [manifest.id, manifest.start_url, manifest.scope, ...manifest.icons.map((icon) => icon.src)]
   const outside = paths.filter((path) => typeof path !== 'string' || !path.startsWith(BASE))
   check(`в манифесте id, start_url, scope и иконки — под ${BASE}`, outside.length === 0, outside.join(', '))
+  check(
+    `свои адреса установки — id ${INSTALL_ID}, start_url ${START_URL}, scope ${BASE} (Р-22)`,
+    manifest.id === INSTALL_ID && manifest.start_url === START_URL && manifest.scope === BASE,
+    `${manifest.id}, ${manifest.start_url}, ${manifest.scope}`,
+  )
   check('в манифесте имя «Авто»', manifest.name === 'Авто' && manifest.short_name === 'Авто', manifest.name)
 
   const served = await Promise.all(
@@ -581,7 +594,9 @@ async function scenario() {
     has(start, 'Авто') && has(start, 'Сначала заведите машину') && has(start, 'Завести машину'),
     start.replace(/\s+/g, ' ').slice(0, 160),
   )
-  check('вкладка одна — «Главная»', (await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)) === 'Главная')
+  const link = await run(`document.querySelector('link[rel="manifest"]')?.getAttribute('href') ?? 'нет'`)
+  check(`страница ссылается на ${BASE}${MANIFEST}`, link === `${BASE}${MANIFEST}`, link)
+  check('вкладка одна — «Главная»',(await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)) === 'Главная')
   check('свежей установке «Что нового» не показано', !has(start, 'Что нового'))
   const database = await run(`indexedDB.databases().then((list) => list.map((each) => each.name).sort().join(', '))`)
   check(
@@ -636,6 +651,7 @@ async function scenario() {
     has(news, '«Настройки» → «Машины»') && has(news, 'Журнал на главном экране'),
     line(news, 'Журнал'),
   )
+  check('«Что нового» — строка об установке на Android', has(news, 'Установка на Android'), line(news, 'Android'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -667,6 +683,16 @@ async function scenario() {
   await syncScenario()
   await journalScenario()
 
+  // ─ Адрес запуска установленного приложения — та же «Главная»: ?app=avto
+  // ничего не переключает (Р-22).
+  await open(new URL(START_URL, APP).href)
+  const launched = await screen()
+  check(
+    `по ${START_URL} — «Главная» с журналом`,
+    has(launched, 'Лукойл') && has(launched, '1 запись'),
+    line(launched, 'Лукойл'),
+  )
+
   // ─ Service worker: без него нет ни офлайна, ни автообновления.
   const worker = await run(`Promise.race([
     navigator.serviceWorker.ready.then((r) => r.active?.state ?? 'нет'),
@@ -686,6 +712,12 @@ async function scenario() {
     `работник ${controlled ? 'управляет' : 'не управляет'} страницей`,
   )
   check('без сети журнал на месте: заправка Лукойл', has(cached, 'Лукойл') && has(cached, '1 запись'), line(cached, 'Лукойл'))
+  await open(new URL(START_URL, APP).href)
+  check(
+    `без сети открывается и по ${START_URL}`,
+    has(await screen(), 'Лукойл') && (await run('navigator.serviceWorker.controller !== null')) === true,
+    line(await screen(), 'Лукойл'),
+  )
   await go('/settings')
   const offlineCurrency = await foldSummary('Валюта')
   check('без сети данные на месте: валюта та, что пришла синхронизацией', offlineCurrency === '· $', offlineCurrency)
