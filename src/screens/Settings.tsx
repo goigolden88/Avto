@@ -6,6 +6,7 @@ import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, type Prefs, type SyncedSt
 import { CHANGES } from '../changes.ts'
 import { CURRENCY_HINTS, CURRENCY_MAX, DEFAULT_CURRENCY, readCurrency, withCurrency } from '../modules/prefs/prefs.ts'
 import { formatDate, nowIso } from '../shared/core/dates.ts'
+import { DemoSettings } from '../shared/ui/Demo.tsx'
 import { Fold } from '../shared/ui/Fold.tsx'
 import { InstallNote } from '../shared/ui/Install.tsx'
 import { ReportBug } from '../shared/ui/Report.tsx'
@@ -37,9 +38,9 @@ function describe(error: unknown): string {
  * Настройки разделами, свёрнутыми: в них заходят за чем-то одним, и экран
  * читается как оглавление. Устройство — «Трапезы» и «Злотых».
  *
- * Разделов четыре: «Синхронизация» — первой, «Машины» (Р-04), «Валюта»
- * (Р-17) и «О приложении». Копия файлом, импорт, демо придут своими
- * задачами Авто-3.
+ * Разделов пять: «Синхронизация» — первой, «Машины» (Р-04), «Валюта»
+ * (Р-17), «Демо-данные» (Я-44, Я-45 «FamilyCore») и «О приложении». Копия
+ * файлом и импорт придут своими задачами Авто-3.
  *
  * `?block=cars` — пришли с «Главной» завести машину: «Машины» раскрываются.
  */
@@ -75,6 +76,8 @@ export function Settings() {
       <CarsSettings reveal={params.get('block') === 'cars'} />
 
       <CurrencySettings />
+
+      <DemoSettings />
 
       <About state={state} />
     </>
