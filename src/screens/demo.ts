@@ -1,6 +1,7 @@
 /**
- * Демо-данные (Я-44, Я-45 «FamilyCore»): две машины и год журнала до дня
- * входа в демо. Даты отсчитываются от этого дня — демо всегда свежее.
+ * Демо-данные (Я-44, Я-45 «FamilyCore»): две машины, год журнала и два
+ * месяца поездок до дня входа в демо. Даты отсчитываются от этого дня —
+ * демо всегда свежее.
  *
  * Машины — каждодневная с бортовым компьютером (у её заправок введён
  * расход) и редкая без него. В журнале — заправки на трёх АЗС с разными
@@ -13,16 +14,22 @@
  * она в основном растёт, а две заправки на одной АЗС внутри ступеньки — «без
  * изменений». Пробег растёт с датой у каждой машины своим темпом.
  *
- * Маршрутов, поездок и парковок в демо пока нет — их экраны придут задачей 6
- * Авто-3. Пять хранилищ пусты, и тест демо ждёт от `checkDemo` ровно эти пять
- * замечаний.
+ * Маршруты (задача 6 Авто-3, #20): три точки, четыре маршрута и поездки за
+ * `TRIP_DAYS` дней. На паре «Дом → Работа» два маршрута: «по МКАД» ровный,
+ * «через центр» в 7 часов быстрее, а в 8 и 9 — заметно дольше; медианы
+ * расходятся. Поездки — замером и вручную, в будни и в выходные, несколько —
+ * с заметкой и выбросом минут.
+ *
+ * Парковок в демо пока нет — их экран придёт своей задачей. Два хранилища
+ * пусты, и тест демо ждёт от `checkDemo` ровно эти два замечания.
  *
  * Чистая функция, без React и без базы: засевает ядро при создании базы
  * `avto-demo`. Данные выдуманные — репозиторий публичный.
  */
 
-import type { Car, Entry, EntryKind, StoreRecord, SyncedStore } from '../app/model.ts'
+import type { Car, Entry, EntryKind, Point, Route, StoreRecord, SyncedStore, Trip } from '../app/model.ts'
 import { round2 } from '../modules/log/numbers.ts'
+import { isWeekend } from '../modules/routes/compare.ts'
 import { DEFAULT_CURRENCY, PREFS_ID } from '../modules/prefs/prefs.ts'
 import { addDays, type DateStr } from '../shared/core/dates.ts'
 import { ulid } from '../shared/core/id.ts'
@@ -163,6 +170,61 @@ const OTHERS: readonly OtherPlan[] = [
 /** Через сколько дней после штрафа он оплачен. */
 const PAID_AFTER = 4
 
+// ─── Маршруты ──────────────────────────────────────────────────────────────
+
+/** Сколько дней поездок до дня входа: первая — не раньше. */
+export const TRIP_DAYS = 60
+
+const CITY = 'Москва'
+
+type PointKey = 'home' | 'work' | 'mall'
+
+const POINTS: Record<PointKey, string> = { home: 'Дом', work: 'Работа', mall: 'ТЦ Мега' }
+
+type RouteKey = 'ring' | 'center' | 'back' | 'shop'
+
+const ROUTES: Record<RouteKey, { from: PointKey; to: PointKey; name: string; link?: string; note?: string }> = {
+  ring: { from: 'home', to: 'work', name: 'по МКАД', link: 'https://yandex.ru/maps/' },
+  center: { from: 'home', to: 'work', name: 'через центр', note: 'в час пик стоит Садовое' },
+  back: { from: 'work', to: 'home', name: 'по МКАД' },
+  shop: { from: 'home', to: 'mall', name: 'по Ленинскому' },
+}
+
+/** Часы утреннего выезда в будни — по кругу, у каждого маршрута все три. */
+const MORNING_HOURS = [7, 8, 9] as const
+
+/** Минуты в пути «Дом → Работа» по часу выезда: центр быстрее рано, дольше в час пик. */
+const MORNING: Record<'ring' | 'center', Record<(typeof MORNING_HOURS)[number], number>> = {
+  ring: { 7: 36, 8: 40, 9: 38 },
+  center: { 7: 29, 8: 58, 9: 50 },
+}
+
+/** В выходные утром «Дом → Работа» пусто, а в ТЦ — как обычно. */
+const WEEKEND_MINUTES: Record<RouteKey, number> = { ring: 31, center: 24, back: 0, shop: 26 }
+
+/** Вечером «Работа → Дом». */
+const EVENING_MINUTES = 41
+
+/** Разброс минут по кругу: одинаковых поездок не бывает. */
+const JITTER: readonly number[] = [0, 2, -1, 3, -2, 1, 0, -3]
+
+/** Минуты выезда по кругу. */
+const PAST_HOUR: readonly string[] = ['05', '20', '35', '50']
+
+/** Выбросы с заметкой: номер утренней поездки в будни → почему дольше. */
+const NOTED: ReadonlyMap<number, { note: string; extra: number }> = new Map([
+  [4, { note: 'ливень', extra: 18 }],
+  [11, { note: 'авария на въезде', extra: 25 }],
+  [23, { note: 'мероприятие в центре', extra: 20 }],
+])
+
+/** Каждая такая поездка вписана вручную — забыли включить замер. */
+const MANUAL_EVERY = 5
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
 // ─── Сборка ────────────────────────────────────────────────────────────────
 
 /** Полночь дня по местному времени, мс: от неё — время внесения записи. */
@@ -171,7 +233,8 @@ function midnight(day: DateStr): number {
 }
 
 /**
- * Демо на день входа `day`: машины, год журнала и валюта. Записи «внесены»
+ * Демо на день входа `day`: машины, год журнала, маршруты с поездками
+ * и валюта. Записи «внесены»
  * в день своей даты — id и `updatedAt` по нему: порядок внесения (Р-21)
  * совпадает с датами, и последняя внесённая — заправка дня входа.
  */
@@ -237,12 +300,70 @@ export function demoData(day: DateStr): DemoData {
     return plan.build({ ...stamp(date), carId: carIds[plan.car], kind: 'fuel', date, amount: 0 })
   })
 
+  // Маршруты: справочники заведены в начале года демо, поездки — в свой день.
+  const pointOf = (key: PointKey): Point => ({ ...stamp(first), name: POINTS[key], city: CITY })
+  const points: Record<PointKey, Point> = { home: pointOf('home'), work: pointOf('work'), mall: pointOf('mall') }
+  const routeOf = (key: RouteKey): Route => {
+    const plan = ROUTES[key]
+    const route: Route = { ...stamp(first), fromId: points[plan.from].id, toId: points[plan.to].id, name: plan.name }
+    if (plan.link) route.link = plan.link
+    if (plan.note) route.note = plan.note
+    return route
+  }
+  const routes: Record<RouteKey, Route> = {
+    ring: routeOf('ring'),
+    center: routeOf('center'),
+    back: routeOf('back'),
+    shop: routeOf('shop'),
+  }
+
+  const trips: Trip[] = []
+  let weekday = 0
+  let weekend = 0
+  for (let ago = TRIP_DAYS; ago >= 1; ago--) {
+    const date = addDays(day, -ago)
+    const trip = (key: RouteKey, hour: number, past: number, minutes: number, fields: Partial<Trip> = {}) => {
+      trips.push({
+        ...stamp(date),
+        routeId: routes[key].id,
+        carId: carIds.daily,
+        date,
+        start: `${pad2(hour)}:${PAST_HOUR[past % PAST_HOUR.length] ?? '00'}`,
+        minutes,
+        source: 'timer',
+        ...fields,
+      })
+    }
+
+    if (isWeekend(date)) {
+      // Через раз — в ТЦ на редкой машине, иначе на работу: то по МКАД, то через центр.
+      const key: RouteKey = weekend % 2 === 0 ? 'shop' : weekend % 4 === 1 ? 'ring' : 'center'
+      const jitter = JITTER[weekend % JITTER.length] ?? 0
+      trip(key, key === 'shop' ? 12 : 10, weekend, WEEKEND_MINUTES[key] + jitter, key === 'shop' ? { carId: carIds.rare } : {})
+      weekend++
+      continue
+    }
+
+    // Будни: утром на работу — маршруты через раз, у каждого все часы выезда по кругу.
+    const key = weekday % 2 === 0 ? 'ring' : 'center'
+    const hour = MORNING_HOURS[Math.floor(weekday / 2) % MORNING_HOURS.length] ?? 8
+    const jitter = JITTER[weekday % JITTER.length] ?? 0
+    const noted = NOTED.get(weekday)
+    trip(key, hour, weekday, MORNING[key][hour] + jitter + (noted?.extra ?? 0), {
+      ...(weekday % MANUAL_EVERY === MANUAL_EVERY - 2 ? { source: 'manual' } : {}),
+      ...(noted ? { note: noted.note } : {}),
+    })
+    // Вечером домой — через день.
+    if (weekday % 2 === 1) trip('back', 18, weekday + 1, EVENING_MINUTES + jitter)
+    weekday++
+  }
+
   return {
     cars: [daily, rare],
     entries,
-    points: [],
-    routes: [],
-    trips: [],
+    points: Object.values(points),
+    routes: Object.values(routes),
+    trips,
     parkings: [],
     parkingVisits: [],
     prefs: [{ ...stamp(first), id: PREFS_ID, currency: DEFAULT_CURRENCY }],

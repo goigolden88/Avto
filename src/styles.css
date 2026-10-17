@@ -166,6 +166,117 @@
   margin-top: 16px;
 }
 
+/* ─── Маршруты ────────────────────────────────────────────────────────────── */
+
+.routes__add {
+  margin-bottom: 16px;
+}
+
+/* Пара точек в обзоре: заголовок — кнопка в сравнение, под ним маршруты
+   с «Поехал» справа. */
+.pair {
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pair__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 0 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pair__head .muted {
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.pair__routes {
+  gap: 0;
+}
+
+.pair__route {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.pair__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pair__name .muted {
+  font-size: 14px;
+}
+
+.pair-view__head h2 {
+  margin: 0 0 4px;
+}
+
+.pair-view__head p {
+  margin: 0 0 12px;
+}
+
+.route__median {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+/* Поездка с заметкой — выделена: по ней видно, почему выброс (Р-14). */
+.trip--noted {
+  padding-left: 10px;
+  border-left: 3px solid var(--due);
+}
+
+.trip__note {
+  color: var(--due);
+  font-size: 14px;
+}
+
+/* Идущий замер: карточка сверху вкладки и строка на «Главной». */
+.timer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.timer p {
+  margin: 0;
+}
+
+.timer__title {
+  font-weight: 600;
+}
+
+.timer__minutes {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
 /* Строка про iPhone на главном: пунктиром, рядом с ней — «Скрыть».
    Как у «Трапезы». */
 .stub {
