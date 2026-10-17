@@ -22,7 +22,7 @@
  * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
  * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22),
- * задача 4 — демо. Проверки прибавляются вместе с экранами.
+ * задача 4 — демо, задача 5 — импорт. Проверки прибавляются вместе с экранами.
  */
 
 import { spawn } from 'node:child_process'
@@ -645,6 +645,20 @@ async function scenario() {
     settings.indexOf('СИНХРОНИЗАЦИЯ') !== -1 && settings.indexOf('СИНХРОНИЗАЦИЯ') < settings.indexOf('ВАЛЮТА'),
     settings.replace(/\s+/g, ' ').slice(0, 120),
   )
+  check(
+    '«Импорт записей» — свёрнутым разделом между валютой и демо',
+    settings.indexOf('ИМПОРТ ЗАПИСЕЙ') > settings.indexOf('ВАЛЮТА') &&
+      settings.indexOf('ИМПОРТ ЗАПИСЕЙ') < settings.indexOf('ДЕМО-ДАННЫЕ') &&
+      !has(settings, 'Как подготовить файл'),
+    settings.replace(/\s+/g, ' ').slice(0, 200),
+  )
+  await unfold('Импорт записей')
+  const noCars = await screen()
+  check(
+    'импорт без машин: «Сначала заведите машину», поля для ответа нет',
+    has(noCars, 'Сначала заведите машину') && (await run(`document.querySelector('.import__text') === null`)) === true,
+    line(noCars, 'Сначала'),
+  )
   const defaultCurrency = await foldSummary('Валюта')
   check('валюта до первой правки — «₽», записи prefs:main ещё нет — Р-17', defaultCurrency === '· ₽', defaultCurrency)
 
@@ -671,6 +685,7 @@ async function scenario() {
   check('«Что нового» — строка об установке на Android', has(news, 'Установка на Android'), line(news, 'Android'))
   check('«Что нового» — строка о расчётах и «Итогах»', has(news, 'Блок «Итоги» над журналом'), line(news, 'Итоги'))
   check('«Что нового» — строка о демо', has(news, 'Демо: «Авто» можно посмотреть'), line(news, 'Демо:'))
+  check('«Что нового» — строка об импорте', has(news, 'Импорт из Excel — «Настройки» → «Импорт записей»'), line(news, 'Импорт'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -743,6 +758,135 @@ async function scenario() {
   const offlineCurrency = await foldSummary('Валюта')
   check('без сети данные на месте: валюта та, что пришла синхронизацией', offlineCurrency === '· $', offlineCurrency)
   await offline(false)
+
+  await importScenario()
+}
+
+/**
+ * Импорт Excel через ИИ (Авто-3, задача 5; Р-10): машина выбрана, не JSON —
+ * отказ, ответ ИИ — сводка без записи в базу, «Загрузить» — записи в журнале
+ * со строками заправок и «Итогами», тот же ответ ещё раз — всё пропущено.
+ * Записи — прошлого года: тогда они раньше сегодняшней заправки сценария
+ * в любой день года. Машина к этому моменту одна — «Солярис 2», валюта «$».
+ */
+async function importScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  /** Экран с обычными пробелами: разряды чисел разделены неразрывными. */
+  const plain = async () => (await screen()).replace(/[  ]/g, ' ')
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 200)
+  const rows = () =>
+    run(`[...document.querySelectorAll('.entry')].map((el) => el.innerText.replace(/\\s+/g, ' ').trim()).join(' | ')`)
+  /** Сколько записей журнала в базе — мимо экрана. */
+  const inBase = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const count = open.result.transaction('entries').objectStore('entries').count()
+        count.onsuccess = () => { open.result.close(); done(count.result) }
+      }
+    })`)
+  const paste = async (text) => {
+    await act(`set(document.querySelector('.import__text'), ${JSON.stringify(text)})`)
+    await sleep(200)
+    await tap('Разобрать', 1200)
+  }
+
+  const year = (await run('new Date().getFullYear()')) - 1
+  const answer = [
+    'Вот JSON:',
+    '```json',
+    JSON.stringify({
+      format: 'avto-import',
+      version: 1,
+      fuel: [
+        { date: `${year}-03-01`, amount: 2000, liters: 40, price: 50, station: 'Лукойл', odometer: 5000, tankBefore: 0.25, tankAfter: '100 %' },
+        { date: `${year}-03-15`, amount: 2000, liters: 40, price: 52.5, station: 'Газпром', odometer: 5600 },
+      ],
+      wash: [{ date: `${year}-03-20`, amount: 500 }],
+      repair: [{ date: `${year}-04-02`, amount: 7000, what: 'замена колодок', service: 'Сервис', odometer: 6100 }],
+      fine: [{ date: `${year}-04-10`, amount: 500, violation: 'превышение' }, { amount: 800, violation: 'парковка' }],
+    }),
+    '```',
+    'Не разобрал: штраф без даты.',
+  ].join('\n')
+
+  await go('/settings')
+  await unfold('Импорт записей')
+  const block = await screen()
+  check(
+    'импорт: машина выбрана — «Солярис 2», есть поле для ответа и промпт',
+    (await run(`document.querySelector('[name="import-car"]')?.selectedOptions[0]?.textContent.trim() ?? ''`)) === 'Солярис 2' &&
+      (await run(`document.querySelector('.import__text') !== null`)) === true &&
+      has(block, 'Как подготовить файл') &&
+      has(block, 'остальные получат записи синхронизацией'),
+    flat(line(block, 'машине')),
+  )
+  await unfold('Как подготовить файл')
+  await unfold('Показать промпт')
+  const prompt = await run(`document.querySelector('.prompt')?.textContent ?? ''`)
+  check(
+    'промпт: формат avto-import, листы «Заправки» и «Штрафы», «Заполняемость полоски бака»',
+    has(prompt, '"format": "avto-import"') && has(prompt, 'лист «Заправки»') && has(prompt, 'лист «Штрафы»') && has(prompt, 'Заполняемость полоски бака до'),
+    flat(prompt),
+  )
+
+  const before = await inBase()
+  await paste('это не json')
+  check('не JSON — понятный отказ, база не тронута', has(await screen(), 'Это не JSON') && (await inBase()) === before, line(await screen(), 'JSON'))
+  await tap('Закрыть', 300)
+
+  await paste(answer)
+  const summary = await plain()
+  check(
+    'сводка: 2 заправки, 1 мойка, 1 ремонт, 1 штраф',
+    has(summary, 'Добавится: 2 заправки, 1 мойка, 1 ремонт, 1 штраф.'),
+    flat(line(summary, 'Добавится')),
+  )
+  check(
+    'сводка: штраф без даты — не разобран; три несходящихся числа — заметка',
+    has(summary, 'Не разобрано — в базу не попадёт: 1') && has(summary, 'Штраф 2: нет даты') && has(summary, 'больше чем на 1 %'),
+    flat(line(summary, 'разобрано')),
+  )
+  check('до кнопки база не тронута', (await inBase()) === before, `записей ${await inBase()} из ${before}`)
+
+  await tap('Загрузить 5', 1500)
+  check('«Загрузить» — 5 записей в базе', has(await screen(), 'Загружено записей: 5') && (await inBase()) === before + 5, `записей ${await inBase()}`)
+
+  // Тот же ответ ещё раз — ничего не добавится.
+  await paste(answer)
+  const again = await plain()
+  check(
+    'тот же ответ ещё раз: «Добавлять нечего», пропущено 5',
+    has(again, 'Добавлять нечего') && has(again, 'Уже есть — пропущено, не перезаписано: 5'),
+    flat(line(again, 'пропущено')),
+  )
+  await tap('Отмена', 300)
+
+  // ─ Журнал: прошлый год по всем машинам.
+  await go('/')
+  await waitFor(HOME_READY, 'журнал после импорта')
+  await act(`choose(field('filter-car'), ''); choose(field('filter-kind'), '')`)
+  await sleep(300)
+  await tap('Год', 400)
+  await act(`document.querySelector('[aria-label="Назад"]')?.click()`)
+  await sleep(500)
+  const journal = (await rows()).replace(/[  ]/g, ' ')
+  check(
+    'в журнале — импортированные записи: заправка Газпром с «+600 км с прошлой · цена +5 %»',
+    has(journal, '+600 км с прошлой · цена +5 %') && has(journal, 'Газпром') && has(journal, 'замена колодок'),
+    flat(journal),
+  )
+  check('штраф с «Уплачено» — без «не оплачен»', has(journal, 'превышение') && !has(journal, 'не оплачен'), flat(journal))
+  const totals = await plain()
+  check(
+    '«Итоги» за год: цена километра и траты по всем четырём видам',
+    /всё [\d ,]+ \$\/км/.test(totals) &&
+      ['Заправка\t2 записи', 'Мойка\t1 запись', 'Ремонт\t1 запись', 'Штраф\t1 запись'].every((each) => has(totals, each)),
+    flat(line(totals, '/км')),
+  )
 }
 
 /**
@@ -1125,8 +1269,16 @@ async function demoScenario() {
   check('оплаченный штраф отмечен и с датой оплаты', paid === true, String(paid))
   await tap('Отмена', 400)
 
-  // ─ Выход: свои записи на месте, полосы нет, демо-база стёрта.
+  // ─ Импорта в демо нет (Я-44 «FamilyCore»): ни поля, ни выбора машины.
   await go('/settings')
+  await unfold('Импорт записей')
+  check(
+    'в демо импорта нет: «В демо импорта нет», поля для ответа нет',
+    has(await screen(), 'В демо импорта нет') && (await run(`document.querySelector('.import__text') === null`)) === true,
+    line(await screen(), 'импорт'),
+  )
+
+  // ─ Выход: свои записи на месте, полосы нет, демо-база стёрта.
   await unfold('Демо-данные')
   await accept()
   await markOld()
