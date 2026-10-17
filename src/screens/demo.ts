@@ -1,6 +1,6 @@
 /**
  * Демо-данные (Я-44, Я-45 «FamilyCore»): две машины, год журнала и два
- * месяца поездок до дня входа в демо. Даты отсчитываются от этого дня —
+ * месяца поездок и парковок до дня входа в демо. Даты отсчитываются от этого дня —
  * демо всегда свежее.
  *
  * Машины — каждодневная с бортовым компьютером (у её заправок введён
@@ -20,15 +20,19 @@
  * расходятся. Поездки — замером и вручную, в будни и в выходные, несколько —
  * с заметкой и выбросом минут.
  *
- * Парковок в демо пока нет — их экран придёт своей задачей. Два хранилища
- * пусты, и тест демо ждёт от `checkDemo` ровно эти два замечания.
+ * Парковки (задача 6 Авто-3, #21): три места у точек в Москве и одно без
+ * точки в Твери, отметки за те же `TRIP_DAYS` дней. У работы утром встать
+ * сразу, вечером мест почти нет; дома днём легко, вечером — с трудом или
+ * никак; в ТЦ в субботу хуже, чем в воскресенье. Часть отметок — без минут
+ * поиска, несколько — с заметкой.
  *
  * Чистая функция, без React и без базы: засевает ядро при создании базы
  * `avto-demo`. Данные выдуманные — репозиторий публичный.
  */
 
-import type { Car, Entry, EntryKind, Point, Route, StoreRecord, SyncedStore, Trip } from '../app/model.ts'
+import type { Car, Entry, EntryKind, Parking, ParkingVisit, Point, Route, StoreRecord, SyncedStore, Trip } from '../app/model.ts'
 import { round2 } from '../modules/log/numbers.ts'
+import { weekdayOf } from '../modules/parking/stats.ts'
 import { isWeekend } from '../modules/routes/compare.ts'
 import { DEFAULT_CURRENCY, PREFS_ID } from '../modules/prefs/prefs.ts'
 import { addDays, type DateStr } from '../shared/core/dates.ts'
@@ -225,6 +229,27 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
+// ─── Парковки ──────────────────────────────────────────────────────────────
+
+type ParkingKey = 'home' | 'work' | 'mall' | 'station'
+
+const PARKINGS: Record<ParkingKey, { point?: PointKey; city: string; where: string; price?: string; link?: string; note?: string }> = {
+  home: { point: 'home', city: CITY, where: 'двор за домом', price: 'бесплатно' },
+  work: { point: 'work', city: CITY, where: 'вдоль забора у работы', price: 'бесплатно', note: 'к вечеру занимает соседний офис' },
+  mall: { point: 'mall', city: CITY, where: 'ТЦ Мега, минус первый', price: 'первые три часа бесплатно', link: 'https://yandex.ru/maps/' },
+  // Без точки и в другом городе: места на экране собраны по городу.
+  station: { city: 'Тверь', where: 'у вокзала', price: 'платно, по часам' },
+}
+
+/** Минуты поиска по результату — по кругу. */
+const SEARCH: Record<ParkingVisit['result'], readonly number[]> = { easy: [0, 1, 0, 2], hard: [7, 10, 6, 12], none: [15, 20, 18] }
+
+/** Каждая такая отметка — без минут: искал, но не засёк. В медиану она не входит. */
+const NO_MINUTES_EVERY = 4
+
+/** За сколько дней до входа — поездка в Тверь. */
+const STATION_AGO = 33
+
 // ─── Сборка ────────────────────────────────────────────────────────────────
 
 /** Полночь дня по местному времени, мс: от неё — время внесения записи. */
@@ -233,8 +258,8 @@ function midnight(day: DateStr): number {
 }
 
 /**
- * Демо на день входа `day`: машины, год журнала, маршруты с поездками
- * и валюта. Записи «внесены»
+ * Демо на день входа `day`: машины, год журнала, маршруты с поездками,
+ * парковки с отметками и валюта. Записи «внесены»
  * в день своей даты — id и `updatedAt` по нему: порядок внесения (Р-21)
  * совпадает с датами, и последняя внесённая — заправка дня входа.
  */
@@ -358,14 +383,70 @@ export function demoData(day: DateStr): DemoData {
     weekday++
   }
 
+  // Парковки: места заведены в начале года демо, отметки — в свой день.
+  const parkingOf = (key: ParkingKey): Parking => {
+    const { point, ...fields } = PARKINGS[key]
+    return { ...stamp(first), ...fields, ...(point ? { pointId: points[point].id } : {}) }
+  }
+  const parkings: Record<ParkingKey, Parking> = {
+    home: parkingOf('home'),
+    work: parkingOf('work'),
+    mall: parkingOf('mall'),
+    station: parkingOf('station'),
+  }
+
+  const visits: ParkingVisit[] = []
+  const visit = (key: ParkingKey, date: DateStr, hour: number, result: ParkingVisit['result'], note?: string) => {
+    const n = visits.length
+    const record: ParkingVisit = {
+      ...stamp(date),
+      parkingId: parkings[key].id,
+      date,
+      time: `${pad2(hour)}:${PAST_HOUR[n % PAST_HOUR.length] ?? '00'}`,
+      result,
+    }
+    if (n % NO_MINUTES_EVERY !== NO_MINUTES_EVERY - 1) record.searchMinutes = SEARCH[result][n % SEARCH[result].length] ?? 0
+    if (note) record.note = note
+    visits.push(record)
+  }
+
+  let workday = 0
+  let restday = 0
+  let saturdays = 0
+  for (let ago = TRIP_DAYS; ago >= 1; ago--) {
+    const date = addDays(day, -ago)
+    if (ago === STATION_AGO) {
+      visit('station', date, 11, 'easy')
+      visit('station', date, 16, 'hard')
+    }
+
+    if (isWeekend(date)) {
+      // Выходные: дома днём встать легко; в ТЦ в субботу — с трудом, в воскресенье — сразу.
+      visit('home', date, 13, 'easy', restday === 3 ? 'ярмарка во дворе, но место нашлось' : undefined)
+      if (weekdayOf(date) !== 5) visit('mall', date, 12, 'easy')
+      else if (saturdays++ === 2) visit('mall', date, 12, 'none', 'распродажа, минус первый занят')
+      else visit('mall', date, 12, 'hard')
+      restday++
+      continue
+    }
+
+    // Будни: у работы утром сразу, к девяти — когда как; вечером мест почти нет.
+    const late = workday % 3 === 2
+    visit('work', date, late ? 9 : 8, late && workday % 2 === 0 ? 'hard' : 'easy', workday === 10 ? 'ремонт дороги у ворот' : undefined)
+    if (workday % 3 === 0) visit('work', date, 18, workday % 9 === 3 ? 'hard' : 'none')
+    // Дома вечером: в семь — с трудом, ближе к ночи — мест нет.
+    if (workday % 2 === 1) visit('home', date, workday % 4 === 1 ? 19 : 21, workday % 4 === 1 ? 'hard' : 'none')
+    workday++
+  }
+
   return {
     cars: [daily, rare],
     entries,
     points: Object.values(points),
     routes: Object.values(routes),
     trips,
-    parkings: [],
-    parkingVisits: [],
+    parkings: Object.values(parkings),
+    parkingVisits: visits,
     prefs: [{ ...stamp(first), id: PREFS_ID, currency: DEFAULT_CURRENCY }],
   }
 }
