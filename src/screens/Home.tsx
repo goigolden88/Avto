@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { config } from '../app/config.ts'
 import { RECORD_STORES } from '../app/model.ts'
 import { CHANGES } from '../changes.ts'
+import { DemoOffer } from '../shared/ui/Demo.tsx'
 import { IosNote } from '../shared/ui/Install.tsx'
 import { syncDot } from '../shared/ui/syncDot.ts'
 import { useSyncStatus } from '../shared/ui/useSync.ts'
@@ -14,6 +15,9 @@ import { useLog, useMainCar } from './useLog.ts'
 /**
  * Главный экран: шапка с шестерёнкой, «Что нового» после обновления и
  * журнал (Р-03). Без машины журнал зовёт её завести.
+ *
+ * Пустому устройству без токена «семья» — один раз предложение демо
+ * (Я-45 «FamilyCore»): правила показа — ядра, хранилища записей — свои.
  *
  * Пуста ли база для «Что нового» и строки про iPhone — по всем хранилищам
  * записей, кроме общих настроек: выбранная валюта записью не считается.
@@ -52,6 +56,8 @@ export function Home() {
           </button>
         </section>
       )}
+
+      <DemoOffer own={RECORD_STORES} />
 
       {log.error && <p className="error block">База не открылась: {log.error}</p>}
 

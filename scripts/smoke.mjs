@@ -21,8 +21,8 @@
  *
  * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
- * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22).
- * Проверки прибавляются вместе с экранами.
+ * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22),
+ * задача 4 — демо. Проверки прибавляются вместе с экранами.
  */
 
 import { spawn } from 'node:child_process'
@@ -605,6 +605,21 @@ async function scenario() {
     `базы: ${database}`,
   )
 
+  // ─ Предложение демо: пустая база, токена нет — один раз (Я-45 «FamilyCore»).
+  await waitFor(`document.querySelector('.demo-offer') !== null`, 'предложение демо на первом запуске')
+  const offer = await screen()
+  check(
+    'на первом запуске — «Посмотреть на демо-данных?» с «Открыть демо» и «Нет, начну своё»',
+    has(offer, 'Посмотреть на демо-данных?') && has(offer, 'Открыть демо') && has(offer, 'Нет, начну своё'),
+    line(offer, 'демо'),
+  )
+  await act(`byText('button', 'Нет, начну своё')?.click()`)
+  await sleep(500)
+  check('после «Нет, начну своё» предложения нет', !has(await screen(), 'Посмотреть на демо-данных?'))
+  await reload()
+  await sleep(1000)
+  check('после перезагрузки предложение больше не показывается', !has(await screen(), 'Посмотреть на демо-данных?'))
+
   // ─ Незнакомый адрес — на главный.
   await go('/nowhere')
   check('незнакомый адрес открывает главный, а не пустоту', (await run('location.hash')) === '#/', await run('location.hash'))
@@ -614,10 +629,12 @@ async function scenario() {
   await sleep(700)
   const settings = await screen()
   check(
-    'настройки открываются шестерёнкой: синхронизация, машины, валюта, о приложении — свёрнуты',
+    'настройки открываются шестерёнкой: синхронизация, машины, валюта, демо-данные, о приложении — свёрнуты',
     has(settings, 'Синхронизация') &&
       has(settings, 'Машины') &&
       has(settings, 'Валюта') &&
+      has(settings, 'Демо-данные') &&
+      !has(settings, 'Открыть демо') &&
       has(settings, 'О приложении') &&
       !has(settings, 'Версия схемы') &&
       !has(settings, 'Добавить машину'),
@@ -653,6 +670,7 @@ async function scenario() {
   )
   check('«Что нового» — строка об установке на Android', has(news, 'Установка на Android'), line(news, 'Android'))
   check('«Что нового» — строка о расчётах и «Итогах»', has(news, 'Блок «Итоги» над журналом'), line(news, 'Итоги'))
+  check('«Что нового» — строка о демо', has(news, 'Демо: «Авто» можно посмотреть'), line(news, 'Демо:'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -693,6 +711,8 @@ async function scenario() {
     has(launched, 'Лукойл') && has(launched, '1 запись'),
     line(launched, 'Лукойл'),
   )
+
+  await demoScenario()
 
   // ─ Service worker: без него нет ни офлайна, ни автообновления.
   const worker = await run(`Promise.race([
@@ -992,6 +1012,136 @@ async function journalScenario() {
     has(totals, '1 запись') && !has(totals, 'Газпром') && has(totals, 'мало данных'),
     flat(line(totals, 'записям')),
   )
+}
+
+/**
+ * Демо (Авто-3, задача 4; Я-44, Я-45 «FamilyCore»): вход из «Настроек» —
+ * полоса «Демо», две машины и год журнала, «Итоги» с основанием, строки
+ * заправок, АЗС, штрафы; выход — свои записи на месте. Вход и выход
+ * спрашивают окном браузера — прогон отвечает «да».
+ */
+async function demoScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  /** Экран с обычными пробелами: разряды чисел разделены неразрывными. */
+  const plain = async () => (await screen()).replace(/[  ]/g, ' ')
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 200)
+  const rows = () =>
+    run(`[...document.querySelectorAll('.entry')].map((el) => el.innerText.replace(/\\s+/g, ' ').trim()).join(' | ')`)
+  const accept = () => run('window.confirm = () => true')
+  const databases = () => run(`indexedDB.databases().then((list) => list.map((each) => each.name).sort().join(', '))`)
+
+  // ─ Вход из «Настроек».
+  await go('/settings')
+  await unfold('Демо-данные')
+  await accept()
+  await markOld()
+  await tap('Открыть демо', 0)
+  await loaded(`document.querySelector('.demo-bar') !== null`, 'демо после входа')
+  await go('/')
+  await waitFor(HOME_READY, 'журнал демо')
+  await sleep(500)
+
+  const home = await plain()
+  check('в демо сверху полоса «Демо»', has(home, 'Демо: данные выдуманные'), flat(home))
+  check('демо — в своей базе avto-demo', (await databases()) === 'avto, avto-demo, family', await databases())
+  const carNames = await act(`return [...field('filter-car').options].map((option) => option.textContent.trim()).join(', ')`)
+  check('в журнале демо две машины', carNames === 'Все машины, Солярис, Нива', carNames)
+  const todayShown = await run(
+    `(() => { const d = new Date(); return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear() })()`,
+  )
+  const top = await run(`document.querySelector('.entry .entry__top span')?.textContent.trim() ?? ''`)
+  check('последняя запись демо — сегодня', top.startsWith(todayShown), top)
+
+  // ─ Каждодневная за текущий месяц: цена километра с основанием, расход, траты.
+  await act(`choose(field('filter-car'), optionByText('filter-car', 'Солярис'))`)
+  await sleep(300)
+  await tap('Месяц', 400)
+  let totals = await plain()
+  check(
+    'каждодневная, месяц: «топливо» и «всё» в ₽/км, «пробег … км, по N записям из M»',
+    /топливо [\d ,]+ ₽\/км · всё [\d ,]+ ₽\/км/.test(totals) && /пробег [\d ]+ км, по \d+ запис\S* из \d+/.test(totals),
+    flat(line(totals, '/км')),
+  )
+  check('каждодневная, месяц: средний расход по заправкам', /Средний расход [\d,]+ л\/100 км по \d+ заправк/.test(totals), flat(line(totals, 'расход')))
+  check('каждодневная, месяц: траты по видам', has(totals, 'Траты по видам') && has(totals, 'Итого'), flat(line(totals, 'Итого')))
+
+  // ─ Редкая за всё время: расхода нет, цена километра есть.
+  await act(`choose(field('filter-car'), optionByText('filter-car', 'Нива'))`)
+  await sleep(300)
+  await tap('Всё', 400)
+  totals = await plain()
+  check(
+    'редкая: средней строки расхода нет, цена километра считается',
+    !has(totals, 'Средний расход') && /всё [\d ,]+ ₽\/км/.test(totals),
+    flat(line(totals, '/км')),
+  )
+
+  // ─ Год по всем машинам: траты по всем видам, у кого-то запись без пробега.
+  // В первые полтора месяца года демо почти всё в прошлом году — смотрим его.
+  await act(`choose(field('filter-car'), '')`)
+  await sleep(300)
+  await tap('Год', 400)
+  const early = await run(`(() => { const d = new Date(); return (d - new Date(d.getFullYear(), 0, 1)) / 86400000 < 45 })()`)
+  if (early) await act(`document.querySelector('[aria-label="Назад"]')?.click()`)
+  await sleep(400)
+  totals = await plain()
+  check(
+    'год: в тратах заправки, мойки, ремонты и штрафы',
+    ['Заправка\t', 'Мойка\t', 'Ремонт\t', 'Штраф\t'].every((kind) => has(totals, kind)),
+    flat(line(totals, 'Итого')),
+  )
+  const bases = [...totals.matchAll(/по (\d+) запис\S* из (\d+)/g)].map((match) => [Number(match[1]), Number(match[2])])
+  check('год: у машины основание «по N из M» с N меньше M', bases.some(([n, m]) => n < m), JSON.stringify(bases))
+
+  // ─ Строки заправок и АЗС подешевле — за всё время.
+  await tap('Всё', 400)
+  const journal = (await rows()).replace(/[  ]/g, ' ')
+  check(
+    'в строках заправок — «+N км с прошлой», цена растёт, бывает без изменений',
+    /\+[\d ]+ км с прошлой/.test(journal) && /цена \+[\d,]+ %/.test(journal) && has(journal, 'цена без изменений'),
+    flat(journal),
+  )
+  const stations = await run(
+    `[...document.querySelectorAll('.stats tr')].filter((row) => ['Лукойл', 'Газпром', 'Татнефть'].includes(row.cells[0]?.textContent.trim())).map((row) => row.cells[0].textContent.trim() + ' ' + row.cells[2]?.textContent.trim())`,
+  )
+  const prices = new Set((stations ?? []).map((each) => each.split(' ').slice(1).join(' ')))
+  check('АЗС подешевле — три АЗС с разной средней ценой', stations?.length === 3 && prices.size === 3, (stations ?? []).join('; '))
+
+  // ─ Штрафы: один не оплачен, у другого — дата оплаты.
+  await act(`choose(field('filter-kind'), 'fine')`)
+  await sleep(400)
+  const fines = (await rows()).split(' | ')
+  check(
+    'штрафов два: один «не оплачен», другой — нет',
+    fines.length === 2 && fines.filter((each) => has(each, 'не оплачен')).length === 1,
+    fines.join(' | '),
+  )
+  await act(`[...document.querySelectorAll('.entry')].find((el) => !el.textContent.includes('не оплачен'))?.click()`)
+  await sleep(500)
+  const paid = await act(`return field('paid')?.checked === true && /^\\d{4}-\\d{2}-\\d{2}$/.test(field('paidDate')?.value ?? '')`)
+  check('оплаченный штраф отмечен и с датой оплаты', paid === true, String(paid))
+  await tap('Отмена', 400)
+
+  // ─ Выход: свои записи на месте, полосы нет, демо-база стёрта.
+  await go('/settings')
+  await unfold('Демо-данные')
+  await accept()
+  await markOld()
+  await tap('Выйти из демо', 0)
+  await loaded(`document.querySelector('.demo-bar') === null && document.querySelector('.fold__btn') !== null`, 'выход из демо')
+  await go('/')
+  await waitFor(HOME_READY, 'журнал после выхода из демо')
+  await sleep(500)
+  const back = await screen()
+  check(
+    'после выхода — свои данные: заправка Лукойл, одна запись, полосы «Демо» нет',
+    has(back, 'Лукойл') && has(back, '1 запись') && !has(back, 'Демо: данные выдуманные'),
+    flat(back),
+  )
+  check('после выхода демо-база стёрта', (await databases()) === 'avto, family', await databases())
 }
 
 /** Синхронизация с подставным репозиторием: первый проход и правка «с другого устройства». */
