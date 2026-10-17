@@ -4,6 +4,8 @@ import type { Entry } from '../app/model.ts'
 import { KIND_FIELDS } from '../modules/log/entries.ts'
 import { currentPeriod, type LogFilter } from '../modules/log/filter.ts'
 import { cheapStations, fuelNotes, perKm, periodStats } from '../modules/log/stats.ts'
+import { parkingsByCity, visitsOf } from '../modules/parking/parkings.ts'
+import { parkingStats, percent } from '../modules/parking/stats.ts'
 import { readCurrency } from '../modules/prefs/prefs.ts'
 import { rankRoutes } from '../modules/routes/compare.ts'
 import { pairsOf } from '../modules/routes/routes.ts'
@@ -17,9 +19,6 @@ import { DEMO_DAYS, demoData, TRIP_DAYS } from './demo.ts'
  * оживляет расчёты журнала (Р-23) в любой день входа — понедельник,
  * воскресенье, 1-е число, 1 января, 29 февраля.
  */
-
-/** Пусты, пока у парковок нет экрана (задача после маршрутов, Авто-3). */
-const EMPTY = ['parkings', 'parkingVisits']
 
 const DAYS: DateStr[] = ['2026-10-17', '2026-10-19', '2026-10-18', '2026-11-01', '2027-01-01', '2028-02-29', '2026-03-02']
 
@@ -39,12 +38,13 @@ describe.each(DAYS)('демо от %s', (day) => {
     period: currentPeriod(kind, day),
   })
 
-  it('по проверке ядра пусты ровно парковки, других изъянов нет', () => {
-    expect(checkDemo(config, day)).toEqual(EMPTY.map((store) => `у «${store}» нет ни одной демо-записи`))
+  it('по проверке ядра изъянов нет: пустых хранилищ нет', () => {
+    expect(checkDemo(config, day)).toEqual([])
   })
 
-  it('id — ULID у всего, машины, точки, маршруты и записи', () => {
-    for (const record of [...data.cars, ...entries, ...data.points, ...data.routes, ...data.trips, ...data.prefs]) {
+  it('id — ULID у всего, машины, точки, маршруты, места и записи', () => {
+    const all = [...data.cars, ...entries, ...data.points, ...data.routes, ...data.trips, ...data.parkings, ...data.parkingVisits, ...data.prefs]
+    for (const record of all) {
       if (record.id !== 'prefs:main') expect(isUlid(record.id)).toBe(true)
     }
   })
@@ -207,6 +207,63 @@ describe.each(DAYS)('демо от %s', (day) => {
         expect(stats.weekend.count).toBeGreaterThan(0)
       }
       expect(data.trips.filter((trip) => trip.note).length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('парковки', () => {
+    const visits = data.parkingVisits
+    const byWhere = (where: string) => data.parkings.find((parking) => parking.where === where)
+    const statsOf = (where: string) => parkingStats(visitsOf(byWhere(where)?.id ?? '', visits))
+    /** Доля результата в часе места, %. Часа нет — null. */
+    const shareAt = (where: string, hour: number, result: 'easy' | 'hard' | 'none') => {
+      const each = statsOf(where).byHour.find((row) => row.hour === hour)
+      return each ? percent(each[result], each.count) : null
+    }
+
+    it('места по городу, у точек — свои точки, отметки — к своим местам', () => {
+      expect(parkingsByCity(data.parkings).map((group) => group.city)).toEqual(['Москва', 'Тверь'])
+      const pointIds = new Set(data.points.map((point) => point.id))
+      for (const parking of data.parkings) if (parking.pointId !== undefined) expect(pointIds.has(parking.pointId)).toBe(true)
+      expect(data.parkings.filter((parking) => parking.pointId === undefined)).toHaveLength(1)
+      const ids = new Set(data.parkings.map((parking) => parking.id))
+      for (const visit of visits) expect(ids.has(visit.parkingId)).toBe(true)
+    })
+
+    it('отметки — примерно за два месяца до дня входа, в будущее не уходят, время — ЧЧ:ММ', () => {
+      const dates = visits.map((visit) => visit.date).sort()
+      for (const visit of visits) {
+        expect(isDateStr(visit.date)).toBe(true)
+        expect(visit.date < day).toBe(true)
+        expect(/^([01]\d|2[0-3]):[0-5]\d$/.test(visit.time)).toBe(true)
+      }
+      expect(daysBetween(dates[0] ?? day, day)).toBeGreaterThanOrEqual(TRIP_DAYS - 7)
+      expect(daysBetween(dates.at(-1) ?? '', day)).toBeLessThanOrEqual(3)
+    })
+
+    it('у работы утром сразу, вечером мест нет', () => {
+      expect(shareAt('вдоль забора у работы', 8, 'easy')).toBe(100)
+      expect(shareAt('вдоль забора у работы', 18, 'none') ?? 0).toBeGreaterThanOrEqual(50)
+    })
+
+    it('дома днём сразу, вечером — с трудом или мест нет', () => {
+      expect(shareAt('двор за домом', 13, 'easy')).toBe(100)
+      expect(shareAt('двор за домом', 19, 'hard')).toBe(100)
+      expect(shareAt('двор за домом', 21, 'none')).toBe(100)
+    })
+
+    it('в ТЦ разный расклад по дням недели: в субботу хуже, чем в воскресенье', () => {
+      const days = new Map(statsOf('ТЦ Мега, минус первый').byWeekday.map((row) => [row.day, row]))
+      expect(days.get(6)?.easy).toBe(days.get(6)?.count)
+      expect(days.get(5)?.easy).toBe(0)
+    })
+
+    it('есть отметки без минут и с нулём минут, несколько — с заметкой; медиана считается', () => {
+      expect(visits.filter((visit) => visit.searchMinutes === undefined).length).toBeGreaterThan(0)
+      expect(visits.filter((visit) => visit.searchMinutes === 0).length).toBeGreaterThan(0)
+      expect(visits.filter((visit) => visit.note).length).toBeGreaterThanOrEqual(2)
+      const search = statsOf('вдоль забора у работы').search
+      expect(search.median).not.toBeNull()
+      expect(search.without).toBeGreaterThan(0)
     })
   })
 

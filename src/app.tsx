@@ -5,6 +5,7 @@ import { db, sync } from './app/core.ts'
 import { CoreProvider } from './shared/ui/core.tsx'
 import { Layout, type Tab } from './shared/ui/Layout.tsx'
 import { Home } from './screens/Home.tsx'
+import { Parkings } from './screens/Parkings.tsx'
 import { RoutesTab } from './screens/RoutesTab.tsx'
 import { Settings } from './screens/Settings.tsx'
 
@@ -37,6 +38,9 @@ export function App() {
           <Route path="/" element={<Layout tabs={TABS} />}>
             <Route index element={<Home />} />
             <Route path="routes" element={<RoutesTab />} />
+            {/* Парковки — экран по ссылке с «Маршрутов», не вкладка (Р-24):
+                вкладка «Маршруты» на нём остаётся подсвеченной. */}
+            <Route path="routes/parkings" element={<Parkings />} />
             {/* «Настройки» — не вкладка: шестерёнка в шапке главного экрана. */}
             <Route path="settings" element={<Settings />} />
             {/* Незнакомый адрес — на главный: приложение открывается,

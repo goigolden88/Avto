@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { db } from '../app/core.ts'
-import type { Point, Route, Trip } from '../app/model.ts'
+import type { Parking, Point, Route, Trip } from '../app/model.ts'
 import { readTimer, TIMER_KEY, type Timer } from '../modules/routes/timer.ts'
 
 export type RoutesData = {
@@ -10,12 +10,14 @@ export type RoutesData = {
   routes: Route[]
   /** Живые поездки. */
   trips: Trip[]
+  /** Живые места парковки: точку, которая стоит у места, не удалить. */
+  parkings: Parking[]
 }
 
 /**
- * Точки, маршруты и поездки — для вкладки «Маршруты» и строки о замере на
- * «Главной». Перечитываются на любую запись в эти хранилища: своей рукой
- * или приехавшую синхронизацией. Пока не прочитано — null.
+ * Точки, маршруты, поездки и места парковки — для вкладки «Маршруты»
+ * и строки о замере на «Главной». Перечитываются на любую запись в эти
+ * хранилища: своей рукой или приехавшую синхронизацией. Пока не прочитано — null.
  */
 export function useRoutes(): { data: RoutesData | null; error: string } {
   const [data, setData] = useState<RoutesData | null>(null)
@@ -23,8 +25,13 @@ export function useRoutes(): { data: RoutesData | null; error: string } {
 
   const load = useCallback(async (isCurrent: () => boolean) => {
     try {
-      const [points, routes, trips] = await Promise.all([db.getAll('points'), db.getAll('routes'), db.getAll('trips')])
-      if (isCurrent()) setData({ points, routes, trips })
+      const [points, routes, trips, parkings] = await Promise.all([
+        db.getAll('points'),
+        db.getAll('routes'),
+        db.getAll('trips'),
+        db.getAll('parkings'),
+      ])
+      if (isCurrent()) setData({ points, routes, trips, parkings })
     } catch (failure) {
       if (isCurrent()) setError(failure instanceof Error ? failure.message : 'База не открылась')
     }
@@ -40,7 +47,7 @@ export function useRoutes(): { data: RoutesData | null; error: string } {
     }
     reload()
     const off = db.onChange((event) => {
-      if (event.store === 'points' || event.store === 'routes' || event.store === 'trips') reload()
+      if (event.store === 'points' || event.store === 'routes' || event.store === 'trips' || event.store === 'parkings') reload()
     })
     return () => {
       alive = false

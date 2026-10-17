@@ -235,13 +235,16 @@
   font-weight: 600;
 }
 
-/* Поездка с заметкой — выделена: по ней видно, почему выброс (Р-14). */
-.trip--noted {
+/* Поездка и отметка парковки с заметкой — выделены: по ним видно, почему
+   выброс (Р-14). */
+.trip--noted,
+.visit--noted {
   padding-left: 10px;
   border-left: 3px solid var(--due);
 }
 
-.trip__note {
+.trip__note,
+.visit__note {
   color: var(--due);
   font-size: 14px;
 }
@@ -275,6 +278,21 @@
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
+}
+
+/* ─── Парковки ────────────────────────────────────────────────────────────── */
+
+/* Место в списке: тап по имени — место, «Отметить» справа. */
+.parking {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.parking__open {
+  flex: 1;
+  border-bottom: 0;
 }
 
 /* Строка про iPhone на главном: пунктиром, рядом с ней — «Скрыть».

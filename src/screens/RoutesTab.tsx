@@ -67,7 +67,8 @@ type Mode =
  * Сверху — карточка идущего замера. Дальше — маршруты по парам точек с
  * «Поехал» у каждого; тап по паре открывает сравнение (`?from=…&to=…`):
  * маршруты по возрастанию медианы, у каждого — разбивка по часу выезда,
- * будни и выходные, его поездки. Точки — своим блоком ниже.
+ * будни и выходные, его поездки. Точки — своим блоком ниже. В шапке —
+ * ссылка на экран парковок (Р-24).
  *
  * Машина поездки — главная этого устройства, иначе последняя (Р-21), как
  * в журнале; машин нет — поездка без машины.
@@ -124,7 +125,15 @@ export function RoutesTab() {
   return (
     <>
       <header className="screen-head">
-        <h1>Маршруты</h1>
+        <div className="screen-head__row">
+          <h1>Маршруты</h1>
+          {/* Парковки — своим экраном отсюда, а не вкладкой (Р-24). */}
+          <div className="screen-head__tools">
+            <Link className="link-btn" to="/routes/parkings">
+              Парковки ›
+            </Link>
+          </div>
+        </div>
       </header>
 
       {ready && data && log.data && timer.timer && (
@@ -571,8 +580,8 @@ function Errors({ list }: { list: readonly string[] }) {
 
 /**
  * Форма точки: имя и город; город новой — из последней заведённой. Точку
- * из маршрутов не удалить — сначала маршруты. Имя меняется везде: маршруты
- * ссылаются на точку по id.
+ * из маршрутов и у мест парковки не удалить — сначала маршруты и места.
+ * Имя меняется везде: маршруты и места ссылаются на точку по id.
  */
 function PointForm({
   mode,
@@ -590,7 +599,7 @@ function PointForm({
   const [error, setError] = useState('')
   const base = mode.id === null ? undefined : data.points.find((point) => point.id === mode.id)
   const result = buildPoint(mode.draft, base, ulid(), nowIso())
-  const block = base ? pointDeleteBlock(base.id, data.routes) : null
+  const block = base ? pointDeleteBlock(base.id, data.routes, data.parkings) : null
 
   async function run(work: () => Promise<unknown>) {
     setError('')
@@ -632,7 +641,7 @@ function PointForm({
           {block ? (
             <>
               <p>{block}</p>
-              <p className="muted">Точка стоит в маршрутах «откуда» или «куда».</p>
+              <p className="muted">Удалить можно точку, которой нет ни в маршрутах «откуда» или «куда», ни у мест парковки.</p>
               <div className="row">
                 <button type="button" className="btn" onClick={() => setAsking(false)}>
                   Понятно
