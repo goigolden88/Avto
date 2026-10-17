@@ -652,6 +652,7 @@ async function scenario() {
     line(news, 'Журнал'),
   )
   check('«Что нового» — строка об установке на Android', has(news, 'Установка на Android'), line(news, 'Android'))
+  check('«Что нового» — строка о расчётах и «Итогах»', has(news, 'Блок «Итоги» над журналом'), line(news, 'Итоги'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -741,6 +742,11 @@ async function journalScenario() {
   const pressed = (group) =>
     run(`document.querySelector('[aria-label="${group}"] [aria-pressed="true"]')?.textContent.trim() ?? null`)
   const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 200)
+  /** Итог у заголовка — с обычными пробелами вместо неразрывных между разрядами. */
+  const summary = async (title) => (await foldSummary(title)).replace(/[  ]/g, ' ')
+  /** Названия машин в «Итогах» — по строке на машину, через « | ». */
+  const totalsCars = () =>
+    run(`[...document.querySelectorAll('.totals__car .car__name')].map((el) => el.textContent.trim()).join(' | ')`)
   /** Записи журнала на экране — по строке на запись, через « | ». */
   const rows = () =>
     run(`[...document.querySelectorAll('.entry')].map((el) => el.innerText.replace(/\\s+/g, ' ').trim()).join(' | ')`)
@@ -812,12 +818,27 @@ async function journalScenario() {
     has(journal, `${dateShown} · Заправка`) && has(journal, '2 220 $') && has(journal, 'Солярис · 40 л по 55,50 $/л · Лукойл'),
     journal,
   )
+  check('первая заправка — ни км с прошлой, ни роста цены', !has(journal, 'с прошлой') && !has(journal, 'цена '), journal)
+
+  // ─ «Итоги» (Р-23): развёрнуты, сумма у заголовка; пробега нет — «мало данных».
+  let totals = await screen()
+  check('«Итоги» над журналом, у заголовка — сумма за период', (await summary('Итоги')) === '· 2 220 $', await summary('Итоги'))
+  check(
+    'без одометра цена километра — «мало данных» с основанием «по 0 записям из 1»',
+    has(totals, 'мало данных') && has(totals, 'по 0 записям из 1'),
+    flat(line(totals, 'записям')),
+  )
+  check(
+    'АЗС подешевле: за последние 6 месяцев, Лукойл 55,50 $/л — сравнить не с чем',
+    has(totals, 'за последние 6 месяцев') && has(line(totals, 'Лукойл'), 'сравнить не с чем') && has(line(totals, 'Лукойл'), '55,50 $/л'),
+    flat(line(totals, 'Лукойл')),
+  )
 
   // ─ Правка: тап по записи — та же форма; три несходящихся числа — предупреждение.
   await act(`document.querySelector('.entry')?.click()`)
   await sleep(500)
   check('тап по записи открывает форму с её числами', (await value('amount')) === '2220' && (await value('price')) === '55,5', await value('amount'))
-  await act(`set(field('amount'), '2000')`)
+  await act(`set(field('amount'), '2000'); set(field('odometer'), '10000')`)
   await sleep(300)
   check('три числа не сходятся — предупреждение', has(await screen(), 'расходится больше чем на 1 %'), line(await screen(), 'расходится'))
   await tap('Сохранить', 800)
@@ -851,6 +872,20 @@ async function journalScenario() {
     has(await screen(), 'показано 1 из 2') && has(journal, 'Мойка') && !has(journal, 'Заправка'),
     journal,
   )
+  totals = await screen()
+  check(
+    'вид на «Итоги» не действует: сказано в подписи, сумма — обе записи, траты по обоим видам',
+    has(totals, 'отбор вида на итоги не действует') &&
+      (await summary('Итоги')) === '· 2 500 $' &&
+      has(totals, 'Заправка\t1 запись\t2 000 $') &&
+      has(totals, 'Мойка\t1 запись\t500 $'),
+    `${await summary('Итоги')}; ${flat(line(totals, 'Итого'))}`,
+  )
+  check(
+    '«Все машины» — цена километра строкой на каждую машину с записями',
+    (await totalsCars()) === 'Солярис | Мамина',
+    await totalsCars(),
+  )
   await act(`choose(field('filter-kind'), '')`)
   await tap('Месяц', 400)
   const monthTitle = await run(`document.querySelector('.period__title')?.textContent ?? ''`)
@@ -862,6 +897,11 @@ async function journalScenario() {
     'прошлый месяц пуст: «За этот период записей нет» и сколько за всё время',
     has(journal, 'За этот период записей нет') && has(journal, 'За всё время — 2 записи'),
     flat(line(journal, 'период')),
+  )
+  check(
+    '«Итоги» пустого месяца: «За период записей нет», у заголовка 0 $',
+    has(journal, 'За период записей нет') && (await summary('Итоги')) === '· 0 $',
+    `${await summary('Итоги')}; ${flat(line(journal, 'За период'))}`,
   )
   await tap('Всё', 400)
 
@@ -922,7 +962,36 @@ async function journalScenario() {
   await go('/')
   await tap('Добавить запись')
   check('главная удалена — подставлена машина последней записи', (await selected('car')) === 'Солярис 2', await selected('car'))
-  await tap('Отмена', 400)
+
+  // ─ Вторая заправка с одометром и ценой: в строке — км с прошлой и рост цены,
+  // в «Итогах» — цена километра и АЗС по возрастанию цены (Р-23).
+  await act(`set(field('liters'), '50'); set(field('price'), '56,61'); set(field('station'), 'Газпром'); set(field('odometer'), '10600')`)
+  await sleep(300)
+  await tap('Сохранить', 800)
+  journal = await rows()
+  check('в строке заправки: «+600 км с прошлой · цена +2 %»', has(journal, '+600 км с прошлой · цена +2 %'), journal)
+  totals = await screen()
+  check(
+    'цена километра «топливо» и «всё» с основанием: 8,05 $/км, пробег 600 км по 2 записям из 2',
+    has(totals, 'топливо 8,05 $/км · всё 8,05 $/км') && has(totals, 'пробег 600 км, по 2 записям из 2'),
+    flat(line(totals, '/км')),
+  )
+  const stationsOrder = await run(
+    `[...document.querySelectorAll('.stats tr')].map((el) => el.cells[0]?.textContent.trim()).filter((name) => name === 'Лукойл' || name === 'Газпром').join(' < ')`,
+  )
+  check('АЗС подешевле — по возрастанию средней цены: Лукойл 50 $/л дешевле Газпрома', stationsOrder === 'Лукойл < Газпром', stationsOrder)
+
+  // Удаление пересчитывает сразу: строки и «Итоги» снова про одну заправку.
+  await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes('Газпром'))?.click()`)
+  await sleep(500)
+  await tap('Удалить', 300)
+  await tap('Удалить', 800)
+  totals = await screen()
+  check(
+    'после удаления — одна запись, «Итоги» снова «мало данных»',
+    has(totals, '1 запись') && !has(totals, 'Газпром') && has(totals, 'мало данных'),
+    flat(line(totals, 'записям')),
+  )
 }
 
 /** Синхронизация с подставным репозиторием: первый проход и правка «с другого устройства». */

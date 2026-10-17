@@ -98,6 +98,39 @@
   font-weight: 600;
 }
 
+/* «Итоги» над журналом: подписи и подзаголовки мельче блока, по машине —
+   строкой: цена километра, основание, расход. */
+.totals__note {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.totals__head {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.totals__cars {
+  gap: 0;
+}
+
+.totals__car {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.totals__car .muted {
+  font-size: 14px;
+}
+
+.totals__sum td {
+  font-weight: 600;
+}
+
 /* Форма записи: заголовок мельче шапки, ошибки и строки — без отступа снизу:
    промежутки задаёт сама форма. */
 .entry-form__title {
