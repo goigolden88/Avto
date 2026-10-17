@@ -7,11 +7,12 @@
  * и раскладка лягут на устройства и в `AvtoData` с первым релизом и после
  * этого не меняются (Р-20). Сторож — `config.test.ts`.
  *
- * `demo` и `summary` не заданы: демо-данные — задача 4 Авто-3, срез для
- * «Тотального Учёта» — задача 7.
+ * Демо-данные — `screens/demo.ts` (задача 4 Авто-3). `summary` не задан:
+ * срез для «Тотального Учёта» — задача 7.
  */
 
 import type { AppConfig } from '../shared/core/model.ts'
+import { demoData } from '../screens/demo.ts'
 import { MIGRATIONS, SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type StoreRecord } from './model.ts'
 
 export const config: AppConfig<StoreRecord> = {
@@ -75,6 +76,10 @@ export const config: AppConfig<StoreRecord> = {
     'Даты — ГГГГ-ММ-ДД, время — ЧЧ:ММ. Любой вид (24.01.26, 20-02-2026, «3 марта») приводи к нему.',
     'Разницу в цене, разницу пробегов, итоги и суммы за месяц не переноси: приложение посчитает их само.',
   ],
+
+  // Две машины и год журнала от дня входа в демо (Я-44, Я-45 «FamilyCore»).
+  // Ядро засевает ими базу `avto-demo`, синхронизации у неё нет.
+  demo: demoData,
 
   about: {
     data: 'учёт машины: траты, пробег, маршруты и парковки',

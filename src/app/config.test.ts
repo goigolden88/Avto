@@ -97,8 +97,8 @@ describe('то, что не меняется после первого рели�
     }
   })
 
-  it('демо и среза пока нет — задачи 4 и 7 Авто-3', () => {
-    expect(config.demo).toBeUndefined()
+  it('демо есть (задача 4 Авто-3), среза пока нет — задача 7', () => {
+    expect(typeof config.demo).toBe('function')
     expect(config.summary).toBeUndefined()
   })
 })
