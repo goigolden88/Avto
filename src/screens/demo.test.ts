@@ -5,10 +5,12 @@ import { KIND_FIELDS } from '../modules/log/entries.ts'
 import { currentPeriod, type LogFilter } from '../modules/log/filter.ts'
 import { cheapStations, fuelNotes, perKm, periodStats } from '../modules/log/stats.ts'
 import { readCurrency } from '../modules/prefs/prefs.ts'
+import { rankRoutes } from '../modules/routes/compare.ts'
+import { pairsOf } from '../modules/routes/routes.ts'
 import { addDays, daysBetween, isDateStr, type DateStr } from '../shared/core/dates.ts'
 import { checkDemo } from '../shared/core/demo.ts'
 import { isUlid } from '../shared/core/id.ts'
-import { DEMO_DAYS, demoData } from './demo.ts'
+import { DEMO_DAYS, demoData, TRIP_DAYS } from './demo.ts'
 
 /**
  * Демо (Я-44, Я-45 «FamilyCore»): состав по проверке ядра и то, что демо
@@ -16,8 +18,8 @@ import { DEMO_DAYS, demoData } from './demo.ts'
  * воскресенье, 1-е число, 1 января, 29 февраля.
  */
 
-/** Пусты, пока у маршрутов и парковок нет экранов (задача 6 Авто-3). */
-const EMPTY = ['points', 'routes', 'trips', 'parkings', 'parkingVisits']
+/** Пусты, пока у парковок нет экрана (задача после маршрутов, Авто-3). */
+const EMPTY = ['parkings', 'parkingVisits']
 
 const DAYS: DateStr[] = ['2026-10-17', '2026-10-19', '2026-10-18', '2026-11-01', '2027-01-01', '2028-02-29', '2026-03-02']
 
@@ -37,12 +39,12 @@ describe.each(DAYS)('демо от %s', (day) => {
     period: currentPeriod(kind, day),
   })
 
-  it('по проверке ядра пусты ровно маршруты и парковки, других изъянов нет', () => {
+  it('по проверке ядра пусты ровно парковки, других изъянов нет', () => {
     expect(checkDemo(config, day)).toEqual(EMPTY.map((store) => `у «${store}» нет ни одной демо-записи`))
   })
 
-  it('id — ULID у всего, машины и записи', () => {
-    for (const record of [...data.cars, ...entries, ...data.prefs]) {
+  it('id — ULID у всего, машины, точки, маршруты и записи', () => {
+    for (const record of [...data.cars, ...entries, ...data.points, ...data.routes, ...data.trips, ...data.prefs]) {
       if (record.id !== 'prefs:main') expect(isUlid(record.id)).toBe(true)
     }
   })
@@ -153,6 +155,59 @@ describe.each(DAYS)('демо от %s', (day) => {
     const prices = groups[0]?.stations.map((station) => station.price.toFixed(2)) ?? []
     expect(prices).toHaveLength(3)
     expect(new Set(prices).size).toBe(3)
+  })
+
+  describe('маршруты', () => {
+    const pairs = pairsOf(data.routes, data.points)
+    const homeWork = pairs.find((pair) => pair.title === 'Дом → Работа')
+    const ranked = homeWork ? rankRoutes(homeWork.routes, data.trips) : []
+
+    it('точки с городом, маршруты по парам, поездки — к своим маршрутам и машинам', () => {
+      expect(data.points.map((point) => point.name)).toEqual(['Дом', 'Работа', 'ТЦ Мега'])
+      for (const point of data.points) expect(point.city).toBeTruthy()
+      expect(pairs.map((pair) => pair.title)).toEqual(['Дом → Работа', 'Дом → ТЦ Мега', 'Работа → Дом'])
+      const routeIds = new Set(data.routes.map((route) => route.id))
+      const carIds = new Set(data.cars.map((car) => car.id))
+      for (const trip of data.trips) {
+        expect(routeIds.has(trip.routeId)).toBe(true)
+        if (trip.carId !== undefined) expect(carIds.has(trip.carId)).toBe(true)
+      }
+    })
+
+    it(`поездки — примерно за два месяца до дня входа, в будущее не уходят`, () => {
+      const dates = data.trips.map((trip) => trip.date).sort()
+      for (const date of dates) {
+        expect(isDateStr(date)).toBe(true)
+        expect(date < day).toBe(true)
+      }
+      expect(daysBetween(dates[0] ?? day, day)).toBeGreaterThanOrEqual(TRIP_DAYS - 7)
+      expect(daysBetween(dates.at(-1) ?? '', day)).toBeLessThanOrEqual(3)
+    })
+
+    it('на «Дом → Работа» два маршрута с заметно разной медианой', () => {
+      expect(ranked).toHaveLength(2)
+      const [fast, slow] = ranked
+      expect((slow?.stats.median ?? 0) - (fast?.stats.median ?? 0)).toBeGreaterThanOrEqual(5)
+    })
+
+    it('расклад по часам разный: в один час быстрее один маршрут, в другой — другой', () => {
+      const byHour = (index: number) => new Map(ranked[index]?.stats.byHour.map((each) => [each.hour, each.median]))
+      const [first, second] = [byHour(0), byHour(1)]
+      const hours = [...first.keys()].filter((hour) => second.has(hour))
+      const firstFaster = hours.filter((hour) => (first.get(hour) ?? 0) < (second.get(hour) ?? 0))
+      expect(firstFaster.length).toBeGreaterThan(0)
+      expect(firstFaster.length).toBeLessThan(hours.length)
+    })
+
+    it('замером и вручную, в будни и в выходные, несколько — с заметкой', () => {
+      for (const { stats } of ranked) {
+        expect(stats.manual).toBeGreaterThan(0)
+        expect(stats.manual).toBeLessThan(stats.count)
+        expect(stats.weekdays.count).toBeGreaterThan(0)
+        expect(stats.weekend.count).toBeGreaterThan(0)
+      }
+      expect(data.trips.filter((trip) => trip.note).length).toBeGreaterThanOrEqual(2)
+    })
   })
 
   // 1 января год — это один день; ремонт и штрафы — за полтора месяца до входа.
