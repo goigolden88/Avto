@@ -2041,6 +2041,12 @@ async function syncScenario() {
   )
   const expected = ['meta.json', 'README.md', 'cars.json', 'points.json', 'routes.json', 'parkings.json', 'prefs.json']
   check('справочники и настройки — файлами по 02-Архитектуре', expected.every((path) => files.includes(path)), files.join(', '))
+  const slice = repoJson('summary.json')
+  check(
+    'срез итогов summary.json уехал тем же проходом: форма 1, четыре отрезка (Р-27)',
+    slice?.format === 1 && Array.isArray(slice?.periods) && slice.periods.length === 4 && Array.isArray(slice?.attention),
+    slice ? `format ${slice.format}, отрезков ${slice.periods?.length}` : 'среза нет',
+  )
   const pushed = repoJson('prefs.json')
   check(
     'валюта уехала в prefs.json одной записью prefs:main',

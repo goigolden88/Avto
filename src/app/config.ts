@@ -7,13 +7,14 @@
  * и раскладка лягут на устройства и в `AvtoData` с первым релизом и после
  * этого не меняются (Р-20). Сторож — `config.test.ts`.
  *
- * Демо-данные — `screens/demo.ts` (задача 4 Авто-3). `summary` не задан:
- * срез для «Тотального Учёта» — задача 7.
+ * Демо-данные — `screens/demo.ts` (задача 4 Авто-3). Срез итогов для
+ * «Тотального Учёта» — `summary/slice.ts` (задача 7, Р-27).
  */
 
 import type { AppConfig } from '../shared/core/model.ts'
 import { SKIPPED_COLUMNS } from '../modules/log/import.ts'
 import { demoData } from '../screens/demo.ts'
+import { summary } from '../summary/slice.ts'
 import { MIGRATIONS, SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type StoreRecord } from './model.ts'
 
 export const config: AppConfig<StoreRecord> = {
@@ -85,6 +86,11 @@ export const config: AppConfig<StoreRecord> = {
   // в демо (Я-44, Я-45 «FamilyCore»).
   // Ядро засевает ими базу `avto-demo`, синхронизации у неё нет.
   demo: demoData,
+
+  // Срез для «Тотального Учёта» (Р-27, Я-48 «FamilyCore»): по машинам — траты,
+  // штрафы и ремонты, пробег и цена километра; неоплаченные штрафы — во «внимании».
+  // Ядро кладёт его `summary.json` проходом синхронизации.
+  summary,
 
   about: {
     data: 'учёт машины: траты, пробег, маршруты и парковки',
