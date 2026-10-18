@@ -56,17 +56,19 @@ export function timerStart(timer: Timer): { date: string; start: string } {
 }
 
 /**
- * Поездка из замера: дата и время выезда — с «Поехал», минуты — до «Приехал»
- * или вписанные руками, отметка «замер». Машина — по желанию.
+ * Поездка из замера: дата и время выезда — с «Поехал». Минуты до «Приехал» —
+ * отметка «замер»; вписанные руками по памяти — «вручную» (Р-26). Машина —
+ * по желанию.
  */
 export function tripFromTimer(
   timer: Timer,
   minutes: number,
+  source: Trip['source'],
   carId: string | null,
   id: string,
   at: string,
 ): Trip {
-  const trip: Trip = { id, updatedAt: at, routeId: timer.routeId, ...timerStart(timer), minutes, source: 'timer' }
+  const trip: Trip = { id, updatedAt: at, routeId: timer.routeId, ...timerStart(timer), minutes, source }
   if (carId) trip.carId = carId
   return trip
 }

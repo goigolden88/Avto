@@ -411,8 +411,9 @@ function RouteBlock({ ctx, route, stats }: { ctx: Context; route: Route; stats: 
 // ─── Замер ─────────────────────────────────────────────────────────────────
 
 /**
- * Карточка идущего замера (Р-13): маршрут и минуты в пути, «Приехал»,
- * «Вписать минуты», «Выбросить». Дольше порога — «Приехал» нет: такие
+ * Карточка идущего замера (Р-13): маршрут и минуты в пути, «Приехал»
+ * (отметка «замер»), «Вписать минуты» (по памяти — «вручную», Р-26),
+ * «Выбросить». Дольше порога — «Приехал» нет: такие
  * минуты молча не сохраняются. Маршрут удалён на другом устройстве —
  * только «Выбросить».
  */
@@ -440,11 +441,11 @@ function TimerCard({
   const overdue = timerOverdue(timer, now)
   const active = activeCars(log.cars)
 
-  async function save(value: number) {
+  async function save(value: number, source: Trip['source']) {
     if (!route) return
     setError('')
     try {
-      await db.put('trips', tripFromTimer(timer, value, carId || null, ulid(), nowIso()))
+      await db.put('trips', tripFromTimer(timer, value, source, carId || null, ulid(), nowIso()))
       onDone()
     } catch (failure) {
       setError(describe(failure))
@@ -454,7 +455,7 @@ function TimerCard({
   function saveTyped() {
     setTried(true)
     const value = parseMinutes(typing ?? '')
-    if (value !== null) void save(value)
+    if (value !== null) void save(value, 'manual')
   }
 
   return (
@@ -520,7 +521,7 @@ function TimerCard({
       ) : (
         <div className="row row--wrap">
           {route && !overdue && (
-            <button type="button" className="btn btn--primary" onClick={() => void save(minutes)}>
+            <button type="button" className="btn btn--primary" onClick={() => void save(minutes, 'timer')}>
               Приехал
             </button>
           )}
