@@ -5,10 +5,18 @@ import { createDb } from '../shared/core/db.ts'
 import { createLayout } from '../shared/core/layout.ts'
 import { checkConfig, LOCAL_STORES } from '../shared/core/model.ts'
 import { config } from './config.ts'
-import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type Entry, type StoreRecord } from './model.ts'
+import {
+  MIGRATIONS,
+  RECORD_STORES,
+  SCHEMA_VERSION,
+  SYNCED_STORES,
+  V1_STORES,
+  type Entry,
+  type StoreRecord,
+} from './model.ts'
 
 /**
- * Сторож конфига «Авто» (Р-20).
+ * Сторож конфига «Авто» (Р-20, Р-28).
  *
  * Механику ядра проверяют его тесты в его CI. Здесь — своё: то, что после
  * первого релиза лежит на устройствах и в `AvtoData` и не меняется никогда, —
@@ -17,8 +25,10 @@ import { RECORD_STORES, SCHEMA_VERSION, SYNCED_STORES, V1_STORES, type Entry, ty
  * с ней разошёлся.
  */
 
-/** Таблица «Хранилища» из 02-Архитектуры: хранилище, индексы сверх `updatedAt`, раскладка. */
-const TABLE: { store: keyof StoreRecord; indexes: string[]; file: string }[] = [
+type Row = { store: keyof StoreRecord; indexes: string[]; file: string }
+
+/** Таблица «Хранилища» из 02-Архитектуры, версия 1: хранилище, индексы сверх `updatedAt`, раскладка. */
+const TABLE: Row[] = [
   { store: 'cars', indexes: [], file: 'cars.json' },
   { store: 'entries', indexes: ['date', 'carId'], file: 'entries/<год>.json' },
   { store: 'points', indexes: [], file: 'points.json' },
@@ -28,6 +38,11 @@ const TABLE: { store: keyof StoreRecord; indexes: string[]; file: string }[] = [
   { store: 'parkingVisits', indexes: ['date', 'parkingId'], file: 'parking-visits/<год>.json' },
   { store: 'prefs', indexes: [], file: 'prefs.json' },
 ]
+
+/** Строки той же таблицы с пометкой «версия 2, миграция» (Р-28). */
+const V2_TABLE: Row[] = [{ store: 'plans', indexes: [], file: 'plans.json' }]
+
+const ALL_ROWS = [...TABLE, ...V2_TABLE]
 
 const db = createDb(config)
 const layout = createLayout(config)
@@ -43,6 +58,7 @@ function empty(): { [S in keyof StoreRecord]: StoreRecord[S][] } {
     parkings: [],
     parkingVisits: [],
     prefs: [],
+    plans: [],
   }
 }
 
@@ -67,15 +83,18 @@ describe('то, что не меняется после первого рели�
     expect(config.name).toBe('Авто')
   })
 
-  it('раскладка версии 1 — восемь хранилищ таблицы 02, в её порядке', () => {
+  it('раскладка версии 1 — те же восемь хранилищ таблицы 02, в её порядке', () => {
     expect([...V1_STORES]).toEqual(TABLE.map((row) => row.store))
     expect([...config.v1Stores]).toEqual(TABLE.map((row) => row.store))
-    expect([...config.stores]).toEqual([...config.v1Stores])
-    expect([...SYNCED_STORES]).toHaveLength(8)
+  })
+
+  it('хранилищ девять: восемь версии 1 и следом планы версии 2 (Р-28)', () => {
+    expect([...config.stores]).toEqual(ALL_ROWS.map((row) => row.store))
+    expect([...SYNCED_STORES]).toHaveLength(9)
   })
 
   it('записи человека — все хранилища, кроме общих настроек: валюта записью не считается', () => {
-    expect([...RECORD_STORES]).toEqual(TABLE.map((row) => row.store).filter((store) => store !== 'prefs'))
+    expect([...RECORD_STORES]).toEqual(ALL_ROWS.map((row) => row.store).filter((store) => store !== 'prefs'))
   })
 
   it('хранилище точек — points, а не places: places у ядра — раскладка файлов (Р-12)', () => {
@@ -103,17 +122,75 @@ describe('то, что не меняется после первого рели�
   })
 })
 
-describe('схема версии 1 (Р-20)', () => {
-  it('версия схемы 1, шагов миграции нет', () => {
-    expect(config.schemaVersion).toBe(1)
-    expect(SCHEMA_VERSION).toBe(1)
-    expect(config.migrations).toEqual([])
+/** Имена хранилищ и их индексов в базе `avto` на устройстве — мимо `db`, напрямую. */
+function storesOnDevice(): Promise<Record<string, string[]>> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('avto')
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const database = request.result
+      const names = [...database.objectStoreNames]
+      const tx = database.transaction(names, 'readonly')
+      const result = Object.fromEntries(names.map((name) => [name, [...tx.objectStore(name).indexNames].sort()]))
+      database.close()
+      resolve(result)
+    }
+  })
+}
+
+describe('схема версии 2 (Р-20, Р-28)', () => {
+  it('версия схемы 2, шаг миграции один — на 2, только добавляет', () => {
+    expect(config.schemaVersion).toBe(2)
+    expect(SCHEMA_VERSION).toBe(2)
+    expect(config.migrations).toBe(MIGRATIONS)
+    expect(config.migrations).toHaveLength(1)
+    expect(config.migrations[0]).toMatchObject({ to: 2, additive: true })
   })
 
-  it('свежая база открывается: все восемь хранилищ есть и пусты', async () => {
+  it('свежая база открывается: все девять хранилищ есть и пусты', async () => {
     for (const store of config.stores) {
       expect(await db.count(store)).toBe(0)
     }
+  })
+
+  it('у планов — только индекс updatedAt, его заводит шаг миграции', async () => {
+    await db.count('plans')
+    await db.close()
+    expect((await storesOnDevice()).plans).toEqual(['updatedAt'])
+  })
+
+  it('база версии 1 с записями открывается на версии 2: всё на месте, планы есть и пусты', async () => {
+    const car = { id: '01J000000000000000000010', updatedAt: at, name: 'Солярис' }
+    const prefs = { id: 'prefs:main', updatedAt: at, currency: '€' }
+    const old = entry('01J000000000000000000011', '2026-03-02')
+    const trip = {
+      id: '01J000000000000000000012',
+      updatedAt: at,
+      routeId: 'route-1',
+      date: '2026-03-02',
+      start: '08:10',
+      minutes: 38,
+      source: 'timer' as const,
+    }
+    // База, какой её оставило «Авто» версии 1, — путём ядра, как на устройстве.
+    expect(await db.createLegacyBase(1, { cars: [car], entries: [old], trips: [trip], prefs: [prefs] })).toEqual([])
+    expect(Object.keys(await storesOnDevice())).not.toContain('plans')
+
+    expect(await db.getAll('cars')).toEqual([car])
+    expect(await db.getAll('entries')).toEqual([old])
+    expect(await db.getAll('trips')).toEqual([trip])
+    expect(await db.get('prefs', 'prefs:main')).toEqual(prefs)
+    expect(await db.count('plans')).toBe(0)
+    // Индексы версии 1 на месте: журнал читается по дате, как раньше.
+    expect(await db.getByIndex('entries', 'date', '2026-03-02')).toEqual([old])
+
+    await db.put('plans', { id: '01J000000000000000000013', updatedAt: at, carId: car.id, what: 'заменить колодки' })
+    expect(await db.getAll('plans')).toHaveLength(1)
+
+    await db.close()
+    const device = await storesOnDevice()
+    expect(device.plans).toEqual(['updatedAt'])
+    expect(device.entries).toEqual(['carId', 'date', 'updatedAt'])
   })
 
   it('по индексам таблицы читается: журнал — по дате и машине, поездки и наблюдения — по своим', async () => {
@@ -153,7 +230,7 @@ describe('схема версии 1 (Р-20)', () => {
 })
 
 describe('индексы — ровно по таблице 02', () => {
-  for (const row of TABLE) {
+  for (const row of ALL_ROWS) {
     it(`${row.store}: ${row.indexes.length > 0 ? row.indexes.join(', ') : 'только updatedAt'}`, () => {
       expect([...config.indexes[row.store]]).toEqual(row.indexes)
     })
@@ -161,7 +238,7 @@ describe('индексы — ровно по таблице 02', () => {
 })
 
 describe('раскладка по файлам — ровно по таблице 02 (Р-19)', () => {
-  for (const row of TABLE) {
+  for (const row of ALL_ROWS) {
     it(`${row.store} → ${row.file}`, () => {
       const place = config.places[row.store]
       const file = place.split === 'none' ? place.path : `${place.dir}/<год>.json`
@@ -184,6 +261,7 @@ describe('раскладка по файлам — ровно по таблиц�
         'routes.json',
         'parkings.json',
         'prefs.json',
+        'plans.json',
         'entries/2026.json',
         'entries/2025.json',
       ]),
@@ -193,7 +271,7 @@ describe('раскладка по файлам — ровно по таблиц�
 
   it('meta.json называет приложение avto (Я-24 «FamilyCore»)', () => {
     const meta = layout.buildFiles(empty()).find((file) => file.path === 'meta.json')
-    expect(JSON.parse(meta?.content ?? '{}')).toEqual({ app: 'avto', schemaVersion: 1 })
+    expect(JSON.parse(meta?.content ?? '{}')).toEqual({ app: 'avto', schemaVersion: 2 })
   })
 
   it('поездка и наблюдение парковки — тоже по году своей даты', () => {

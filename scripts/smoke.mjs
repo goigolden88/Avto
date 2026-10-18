@@ -23,7 +23,7 @@
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
  * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22),
  * задача 4 — демо, задача 5 — импорт, задача 6 — маршруты, бак заправки
- * (#24). Проверки
+ * (#24), планы (#34). Проверки
  * прибавляются вместе с экранами.
  */
 
@@ -599,7 +599,7 @@ async function scenario() {
   const link = await run(`document.querySelector('link[rel="manifest"]')?.getAttribute('href') ?? 'нет'`)
   check(`страница ссылается на ${BASE}${MANIFEST}`, link === `${BASE}${MANIFEST}`, link)
   const tabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
-  check('внизу две вкладки — «Главная» и «Маршруты» (Р-24)', tabs === 'Главная, Маршруты', tabs)
+  check('внизу три вкладки — «Главная», «Маршруты» и «Планы» (Р-24, Р-28)', tabs === 'Главная, Маршруты, Планы', tabs)
   check('свежей установке «Что нового» не показано', !has(start, 'Что нового'))
   const database = await run(`indexedDB.databases().then((list) => list.map((each) => each.name).sort().join(', '))`)
   check(
@@ -669,9 +669,9 @@ async function scenario() {
   await unfold('Что где лежит')
   const about = await screen()
   check(
-    'в «О приложении» — схема 1 и восемь хранилищ, все пусты',
-    has(about, 'Версия схемы данных: 1') &&
-      ['Машины', 'Записи журнала', 'Точки маршрутов', 'Маршруты', 'Поездки', 'Места парковки', 'Наблюдения парковок', 'Общие настройки'].every(
+    'в «О приложении» — схема 2 и девять хранилищ, все пусты',
+    has(about, 'Версия схемы данных: 2') &&
+      ['Машины', 'Записи журнала', 'Точки маршрутов', 'Маршруты', 'Поездки', 'Места парковки', 'Наблюдения парковок', 'Общие настройки', 'Планы'].every(
         // \u042F\u0447\u0435\u0439\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B innerText \u0440\u0430\u0437\u0434\u0435\u043B\u044F\u0435\u0442 \u0442\u0430\u0431\u0443\u043B\u044F\u0446\u0438\u0435\u0439, \u043F\u0443\u0441\u0442\u0430\u044F \u0442\u0440\u0435\u0442\u044C\u044F \u2014 \u0442\u043E\u0436\u0435.
         (label) => new RegExp(`(?:^|\\n)${label}\\t0\\t*(?:\\n|$)`).test(about),
       ),
@@ -692,6 +692,7 @@ async function scenario() {
   check('«Что нового» — строка о маршрутах', has(news, 'Маршруты — новая вкладка внизу'), line(news, 'Маршруты —'))
   check('«Что нового» — строка о парковках', has(news, 'Парковки — ссылкой «Парковки» на вкладке «Маршруты»'), line(news, 'Парковки —'))
   check('«Что нового» — строка о «Вписать минуты» в замере', has(news, 'поездка запишется с отметкой «вручную», а не «замер»'), line(news, 'Вписать минуты'))
+  check('«Что нового» — строка о «Планах»', has(news, 'Планы — третья вкладка внизу'), line(news, 'Планы —'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -724,6 +725,7 @@ async function scenario() {
   await journalScenario()
   await routesScenario()
   await parkingsScenario()
+  await plansScenario()
 
   // ─ Адрес запуска установленного приложения — та же «Главная»: ?app=avto
   // ничего не переключает (Р-22).
@@ -1150,12 +1152,12 @@ async function parkingsScenario() {
   const empty = await screen()
   const tabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
   check(
-    'экран парковок по ссылке: пусто — «завести место, потом отметки», вкладок внизу по-прежнему две',
+    'экран парковок по ссылке: пусто — «завести место, потом отметки», вкладки парковок внизу нет',
     (await run('location.hash')) === '#/routes/parkings' &&
       has(empty, 'Мест пока нет') &&
       has(empty, 'Сначала заведите место') &&
       has(empty, 'потом ставьте отметки') &&
-      tabs === 'Главная, Маршруты',
+      tabs === 'Главная, Маршруты, Планы',
     `${await run('location.hash')}; ${tabs}; ${flat(empty)}`,
   )
   await act(`byText('a', '‹ Маршруты')?.click()`)
@@ -1331,6 +1333,237 @@ async function parkingsScenario() {
     (await run('location.hash')) === '#/routes/parkings' && (await folds()) === 'Тверь' && (await liveVisits()) === 1,
     `${await run('location.hash')}; ${await folds()}; отметок ${await liveVisits()}`,
   )
+}
+
+/**
+ * Планы (#34, Р-28): третья вкладка, подсказка на пустой, план с машиной
+ * по умолчанию, «по» раньше «с» — не сохранить, порядок и пометки, ориентир
+ * по пробегу с последним пробегом журнала, строка «пора» на «Главной»,
+ * правка и удаление, «Сделано» с отменой и с сохранением, свёрнутое
+ * «Сделано» помнится. Машина к этому моменту одна — «Солярис 2», в журнале
+ * одна заправка сегодня с пробегом 10 000 км. Запись «Ремонт» из «Сделано»
+ * в конце удаляется: дальше сценарий ждёт в журнале одну запись.
+ */
+async function plansScenario() {
+  const tap = async (label, wait = 500) => {
+    await act(`byText('button', ${JSON.stringify(label)})?.click()`)
+    await sleep(wait)
+  }
+  const value = (name) => run(`document.querySelector('[name="${name}"]')?.value ?? null`)
+  const selected = (name) =>
+    run(`document.querySelector('[name="${name}"]')?.selectedOptions[0]?.textContent.trim() ?? null`)
+  const pressed = (group) =>
+    run(`document.querySelector('[aria-label="${group}"] [aria-pressed="true"]')?.textContent.trim() ?? null`)
+  const plain = async () => (await screen()).replace(/[  ]/g, ' ')
+  const flat = (text) => (text ?? '').replace(/\s+/g, ' ').slice(0, 240)
+  const READY = `document.querySelector('.plans .home-empty, .plans .plans__add') !== null`
+  /** День от сегодняшнего в странице, ГГГГ-ММ-ДД. */
+  const dayInPage = (offset) =>
+    run(`(() => { const d = new Date(); d.setDate(d.getDate() + ${offset}); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })()`)
+  const shown = (date) => date.split('-').reverse().join('.')
+  /** Несделанные планы в списке — по порядку, через « | ». */
+  const order = () => run(`[...document.querySelectorAll('.plan .car__name')].map((el) => el.textContent.trim()).join(' | ')`)
+  const row = (what) =>
+    `[...document.querySelectorAll('.plan')].find((el) => el.querySelector('.car__name')?.textContent.trim() === ${JSON.stringify(what)})`
+  const rowText = (what) => run(`${row(what)}?.innerText.replace(/[\\u00A0\\u202F]/g, ' ') ?? ''`)
+  const openPlan = async (what) => {
+    await act(`${row(what)}?.querySelector('.plan__open')?.click()`)
+    await sleep(500)
+  }
+  const donePlan = async (what) => {
+    await act(`[...(${row(what)}?.querySelectorAll('button') ?? [])].find((el) => el.textContent.trim() === 'Сделано')?.click()`)
+    await sleep(500)
+  }
+  /** Планы в базе — мимо экрана: живые, с «что», датой «сделано» и записью. */
+  const plansInBase = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const all = open.result.transaction('plans').objectStore('plans').getAll()
+        all.onsuccess = () => { open.result.close(); done(all.result.filter((plan) => !plan.deleted)) }
+      }
+    })`)
+  const entryInBase = (id) =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const get = open.result.transaction('entries').objectStore('entries').get(${JSON.stringify(id)})
+        get.onsuccess = () => { open.result.close(); done(get.result ?? null) }
+      }
+    })`)
+  const addPlan = async (fields) => {
+    await tap('Добавить план')
+    await act(`set(field('plan-what'), ${JSON.stringify(fields.what)})`)
+    await sleep(100)
+    if (fields.term) await tap(fields.term, 200)
+    const sets = []
+    if (fields.date) sets.push(`set(field('plan-date'), ${JSON.stringify(fields.date)})`)
+    if (fields.until) sets.push(`set(field('plan-until'), ${JSON.stringify(fields.until)})`)
+    if (fields.odometer) sets.push(`set(field('plan-odometer'), ${JSON.stringify(fields.odometer)})`)
+    if (fields.note) sets.push(`set(field('plan-note'), ${JSON.stringify(fields.note)})`)
+    if (sets.length > 0) await act(sets.join('; '))
+    await sleep(200)
+    await tap('Сохранить', 800)
+  }
+
+  const today = await dayInPage(0)
+
+  // ─ Пусто: на «Главной» строки нет, на «Планах» — подсказка.
+  await go('/')
+  await waitFor(HOME_READY, 'главный экран перед планами')
+  check('без планов на «Главной» строки о планах нет', (await run(`document.querySelector('.plans-line') === null`)) === true)
+  await act(`[...document.querySelectorAll('.tab')].find((el) => el.textContent.trim() === 'Планы')?.click()`)
+  await waitFor(READY, 'вкладка «Планы»')
+  const empty = await screen()
+  check(
+    'вкладка «Планы»: пусто — подсказка, что сюда писать, и «Добавить план»',
+    (await run('location.hash')) === '#/plans' && has(empty, 'Планов пока нет') && has(empty, 'совет мастера') && has(empty, 'Добавить план'),
+    flat(empty),
+  )
+
+  // ─ Новый план: машина подставлена, без срока; «что сделать» обязательно.
+  await tap('Добавить план')
+  check(
+    'новый план: машина — как в журнале, срок — «Без срока»',
+    (await selected('plan-car')) === 'Солярис 2' && (await pressed('Срок')) === 'Без срока' && has(await screen(), 'Новый план'),
+    `${await selected('plan-car')}, ${await pressed('Срок')}`,
+  )
+  await tap('Сохранить', 300)
+  check('план без «что сделать» не сохранить', has(await screen(), 'Впишите, что сделать') && has(await screen(), 'Новый план'))
+
+  // «С… по…»: «с» подставлено сегодня; «по» раньше «с» — понятная фраза.
+  await act(`set(field('plan-what'), 'заменить колодки')`)
+  await sleep(100)
+  await tap('С… по…', 300)
+  check('«С… по…» — «с» подставлено сегодня, «по» пусто', (await value('plan-date')) === today && (await value('plan-until')) === '', `${await value('plan-date')} – ${await value('plan-until')}`)
+  await act(`set(field('plan-until'), ${JSON.stringify(await dayInPage(-1))})`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check(
+    '«по» раньше «с» — понятная фраза, план не сохранён',
+    has(await screen(), '«По» раньше, чем «с»') && has(await screen(), 'Новый план') && (await plansInBase()).length === 0,
+    flat(line(await screen(), '«По»')),
+  )
+  await act(`set(field('plan-until'), ${JSON.stringify(await dayInPage(10))})`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+
+  await addPlan({ what: 'ТО-2', term: 'К дате', date: await dayInPage(30) })
+  await addPlan({ what: 'заменить ремень ГРМ', odometer: '120 000', note: 'совет мастера' })
+  await addPlan({ what: 'поменять щётки', term: 'К дате', date: await dayInPage(-3) })
+
+  // ─ Порядок: пришедшие сверху (просроченный, «пора»), дальше по сроку, внизу без срока.
+  check(
+    'порядок: просроченный, «пора», со сроком впереди, без срока',
+    (await order()) === 'поменять щётки | заменить колодки | ТО-2 | заменить ремень ГРМ',
+    await order(),
+  )
+  const states = await run(`[...document.querySelectorAll('.plan__state')].map((el) => el.textContent.trim()).join(', ')`)
+  check('пометки — «просрочено» и «пора» только у пришедших', states === 'просрочено, пора', states)
+  const range = await rowText('заменить колодки')
+  check(
+    'у плана — имя машины и срок «с… по…»',
+    has(range, `Солярис 2 · с ${shown(today)} по ${shown(await dayInPage(10))}`),
+    flat(range),
+  )
+  const belt = await rowText('заменить ремень ГРМ')
+  check(
+    'ориентир по пробегу — рядом последний пробег журнала: «к 120 000 км · сейчас 10 000 км (дд.мм)»',
+    has(belt, `к 120 000 км · сейчас 10 000 км (${shown(today).slice(0, 5)})`) && has(belt, 'без срока') && has(belt, 'совет мастера'),
+    flat(belt),
+  )
+
+  // ─ «Главная»: строка «пора» со ссылкой на «Планы».
+  await go('/')
+  await waitFor(`document.querySelector('.plans-line') !== null`, 'строка о планах на «Главной»')
+  const homeLine = await run(`document.querySelector('.plans-line')?.innerText ?? ''`)
+  check('на «Главной» — «Планы: пора — 2» со ссылкой', has(homeLine, 'Планы: пора — 2') && has(homeLine, 'На «Планы»'), flat(homeLine))
+  await act(`byText('a', 'На «Планы»')?.click()`)
+  await waitFor(READY, '«Планы» по ссылке с «Главной»')
+  check('ссылка ведёт на «Планы»', (await run('location.hash')) === '#/plans', await run('location.hash'))
+
+  // ─ Правка и удаление.
+  await openPlan('ТО-2')
+  check(
+    'тап по плану — форма с его данными',
+    has(await screen(), 'План') && (await value('plan-what')) === 'ТО-2' && (await pressed('Срок')) === 'К дате',
+    `${await value('plan-what')}, ${await pressed('Срок')}`,
+  )
+  await act(`set(field('plan-what'), 'ТО-2 у дилера')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('правка плана видна в списке', (await order()).includes('ТО-2 у дилера'), await order())
+  await openPlan('ТО-2 у дилера')
+  await tap('Удалить', 300)
+  check('удаление плана спрашивает подтверждение', has(await screen(), 'Удалить план «ТО-2 у дилера»? Это не отменить.'))
+  await tap('Удалить', 800)
+  check('план удалён', !(await order()).includes('ТО-2') && (await plansInBase()).length === 3, await order())
+
+  // ─ «Сделано» и отмена: форма записи «Ремонт» из плана; закрыта — план как был.
+  await donePlan('поменять щётки')
+  const repairForm = {
+    kind: await pressed('Вид записи'),
+    car: await selected('car'),
+    date: await value('date'),
+    what: await value('what'),
+    note: await value('note'),
+  }
+  check(
+    '«Сделано» — новая запись «Ремонт»: машина плана, сегодня, «что делали» — текст плана',
+    repairForm.kind === 'Ремонт' && repairForm.car === 'Солярис 2' && repairForm.date === today && repairForm.what === 'поменять щётки' && repairForm.note === '',
+    JSON.stringify(repairForm),
+  )
+  await tap('Отмена', 600)
+  check(
+    'закрыта без сохранения — план на месте, «Сделано» пусто',
+    (await order()).startsWith('поменять щётки') && (await run(`document.querySelector('.plans .fold__btn') === null`)) === true,
+    await order(),
+  )
+
+  // ─ «Сделано» с суммой: запись в журнале, план — в свёрнутом «Сделано» с датой.
+  await donePlan('заменить ремень ГРМ')
+  check('заметка плана — в примечании записи', (await value('note')) === 'совет мастера', await value('note'))
+  await act(`set(field('amount'), '7000')`)
+  await sleep(200)
+  await tap('Сохранить', 1000)
+  const done = (await plansInBase()).find((plan) => plan.what === 'заменить ремень ГРМ')
+  const repair = done?.entryId ? await entryInBase(done.entryId) : null
+  check(
+    'план сделан: дата и ссылка на запись «Ремонт» с суммой и текстом плана',
+    done?.doneDate === today && repair?.kind === 'repair' && repair?.amount === 7000 && repair?.what === 'заменить ремень ГРМ' && repair?.note === 'совет мастера',
+    `${JSON.stringify(done)}; ${JSON.stringify(repair)}`,
+  )
+  check(
+    'сделанный ушёл из списка в свёрнутый блок «Сделано · 1»',
+    !(await order()).includes('ремень') &&
+      (await foldSummary('Сделано')) === '· 1' &&
+      (await run(`[...document.querySelectorAll('.fold__btn')].find((el) => el.textContent.trim() === 'Сделано')?.getAttribute('aria-expanded')`)) === 'false',
+    `${await order()}; ${await foldSummary('Сделано')}`,
+  )
+  await unfold('Сделано')
+  check('в «Сделано» — план с датой', has(await plain(), `заменить ремень ГРМ`) && has(await plain(), `сделано ${shown(today)}`), flat(line(await plain(), 'сделано')))
+
+  // Развёрнутое «Сделано» помнится после перезагрузки, свёрнутое — тоже.
+  await reload(READY, '«Планы» после перезагрузки')
+  await sleep(500)
+  const expanded = () =>
+    run(`[...document.querySelectorAll('.fold__btn')].find((el) => el.textContent.trim() === 'Сделано')?.getAttribute('aria-expanded')`)
+  const afterOpen = await expanded()
+  await act(`[...document.querySelectorAll('.fold__btn')].find((el) => el.textContent.trim() === 'Сделано')?.click()`)
+  await sleep(400)
+  await reload(READY, '«Планы» после второй перезагрузки')
+  await sleep(500)
+  check('устройство помнит, свёрнут ли «Сделано»', afterOpen === 'true' && (await expanded()) === 'false', `${afterOpen} → ${await expanded()}`)
+
+  // ─ Запись «Ремонт» в журнале; убираем её — дальше сценарий ждёт одну запись.
+  await go('/')
+  await waitFor(HOME_READY, 'журнал после «Сделано»')
+  check('запись «Ремонт» из плана — в журнале', has(await screen(), 'заменить ремень ГРМ') && has(await screen(), '2 записи'), flat(line(await screen(), 'ремень')))
+  await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes('заменить ремень ГРМ'))?.click()`)
+  await sleep(500)
+  await tap('Удалить', 300)
+  await tap('Удалить', 800)
+  check('запись «Ремонт» удалена — в журнале снова одна', has(await screen(), '1 запись') && !has(await screen(), 'заменить ремень ГРМ'), flat(line(await screen(), 'запис')))
 }
 
 /**
@@ -1844,6 +2077,7 @@ async function demoScenario() {
 
   const home = await plain()
   check('в демо сверху полоса «Демо»', has(home, 'Демо: данные выдуманные'), flat(home))
+  check('на «Главной» демо — строка «Планы: пора — 2»', has(home, 'Планы: пора — 2'), flat(line(home, 'Планы:')))
   check('демо — в своей базе avto-demo', (await databases()) === 'avto, avto-demo, family', await databases())
   const carNames = await act(`return [...field('filter-car').options].map((option) => option.textContent.trim()).join(', ')`)
   check('в журнале демо две машины', carNames === 'Все машины, Солярис, Нива', carNames)
@@ -1961,6 +2195,22 @@ async function demoScenario() {
     flat(line(demoPlace, '18 ч')),
   )
 
+  // ─ Планы демо: просроченный, «с… по…», без срока с ориентиром и один сделанный.
+  await go('/plans')
+  await waitFor(`document.querySelector('.plans .plan') !== null`, 'планы демо')
+  const demoPlans = (await screen()).replace(/[  ]/g, ' ')
+  const demoStates = await run(`[...document.querySelectorAll('.plan__state')].map((el) => el.textContent.trim()).join(', ')`)
+  check(
+    'в демо на «Планах» — просроченный, «пора» «с… по…», без срока с ориентиром и последним пробегом',
+    demoStates === 'просрочено, пора' &&
+      (await run(`document.querySelectorAll('.plan').length`)) === 3 &&
+      / с \d\d\.\d\d\.\d{4} по \d\d\.\d\d\.\d{4}/.test(demoPlans) &&
+      has(demoPlans, 'без срока') &&
+      /к [\d ]+ км · сейчас [\d ]+ км \(\d\d\.\d\d/.test(demoPlans),
+    `${demoStates}; ${flat(demoPlans)}`,
+  )
+  check('в демо — один сделанный план в блоке «Сделано»', (await foldSummary('Сделано')) === '· 1', await foldSummary('Сделано'))
+
   // ─ Импорта в демо нет (Я-44 «FamilyCore»): ни поля, ни выбора машины.
   await go('/settings')
   await unfold('Импорт записей')
@@ -2029,8 +2279,8 @@ async function syncScenario() {
   const files = Object.keys(repoFiles()).sort()
   check('синхронизация прошла: всё отправлено', has(first, 'Всё отправлено'), line(first, 'отправлен'))
   check(
-    'в репозитории meta.json с "app": "avto" и схемой 1 — Я-24 «FamilyCore»',
-    repoJson('meta.json')?.app === 'avto' && repoJson('meta.json')?.schemaVersion === 1,
+    'в репозитории meta.json с "app": "avto" и схемой 2 — Я-24 «FamilyCore», Р-28',
+    repoJson('meta.json')?.app === 'avto' && repoJson('meta.json')?.schemaVersion === 2,
     JSON.stringify(repoJson('meta.json')),
   )
   check(
@@ -2039,7 +2289,7 @@ async function syncScenario() {
       (repoFiles()['README.md'] ?? '').includes('`entries/ГГГГ.json`'),
     (repoFiles()['README.md'] ?? 'README нет').slice(0, 60),
   )
-  const expected = ['meta.json', 'README.md', 'cars.json', 'points.json', 'routes.json', 'parkings.json', 'prefs.json']
+  const expected = ['meta.json', 'README.md', 'cars.json', 'points.json', 'routes.json', 'parkings.json', 'prefs.json', 'plans.json']
   check('справочники и настройки — файлами по 02-Архитектуре', expected.every((path) => files.includes(path)), files.join(', '))
   const slice = repoJson('summary.json')
   check(
@@ -2054,13 +2304,38 @@ async function syncScenario() {
     JSON.stringify(pushed),
   )
 
-  // ─ Другое устройство сменило валюту на «$» — после синхронизации она здесь.
+  // ─ Другое устройство сменило валюту на «$» и завело план — после синхронизации они здесь.
   const later = new Date(Date.now() + 60_000).toISOString()
-  commitFromOtherDevice({ 'prefs.json': [{ id: 'prefs:main', updatedAt: later, currency: '$' }] })
+  const planElsewhere = { id: '01JABCDEFGHJKMNPQRSTVWXYZ0', updatedAt: later, carId: '01JABCDEFGHJKMNPQRSTVWXYZ1', what: 'план с телефона' }
+  commitFromOtherDevice({
+    'prefs.json': [{ id: 'prefs:main', updatedAt: later, currency: '$' }],
+    'plans.json': [planElsewhere],
+  })
   const pulled = await syncNow()
   await sleep(500)
   const synced = await foldSummary('Валюта')
   check('валюта с другого устройства доехала после синхронизации', synced === '· $', `${synced}; ${line(pulled, 'получено')}`)
+  const plansHere = await run(`new Promise((done) => {
+    const open = indexedDB.open('avto')
+    open.onsuccess = () => {
+      const all = open.result.transaction('plans').objectStore('plans').getAll()
+      all.onsuccess = () => { open.result.close(); done(all.result.map((plan) => plan.what).join(', ')) }
+    }
+  })`)
+  check('план с другого устройства доехал после синхронизации (plans.json)', plansHere === 'план с телефона', plansHere)
+
+  // Его машины здесь нет: план — с меткой удаления, мимо экрана, чтобы не мешал
+  // сценарию «Планов». Синхронизация сейчас выключится, метка никуда не уедет.
+  await run(`new Promise((done, fail) => {
+    const open = indexedDB.open('avto')
+    open.onsuccess = () => {
+      const base = open.result
+      const tx = base.transaction('plans', 'readwrite')
+      tx.objectStore('plans').put({ ...${JSON.stringify(planElsewhere)}, deleted: true })
+      tx.oncomplete = () => { base.close(); done(true) }
+      tx.onerror = () => fail(tx.error)
+    }
+  })`)
 
   // Выключить: дальше прогон без сети, и проход не должен пытаться отправлять.
   await act(`document.querySelector('.check input')?.click()`)

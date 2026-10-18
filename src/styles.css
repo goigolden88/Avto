@@ -327,6 +327,38 @@
   border-bottom: 0;
 }
 
+/* ─── Планы ───────────────────────────────────────────────────────────────── */
+
+.plans__add {
+  margin-bottom: 16px;
+}
+
+.plans__done-note {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+/* План в списке: тап по тексту — правка, «Сделано» справа. */
+.plan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.plan__open {
+  flex: 1;
+  border-bottom: 0;
+}
+
+/* «пора» и «просрочено» — словом, не только цветом. */
+.plan__state {
+  color: var(--due);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Строка про iPhone на главном: пунктиром, рядом с ней — «Скрыть».
    Как у «Трапезы». */
 .stub {

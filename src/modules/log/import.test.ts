@@ -21,6 +21,7 @@ function base(fields: Partial<StoreData<StoreRecord>> = {}): StoreData<StoreReco
     parkings: [],
     parkingVisits: [],
     prefs: [],
+    plans: [],
     ...fields,
   }
 }

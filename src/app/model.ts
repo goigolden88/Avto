@@ -137,6 +137,31 @@ export type ParkingVisit = Base & {
   note?: string
 }
 
+// ─── Планы (Р-28) ──────────────────────────────────────────────────────────
+
+/**
+ * План ремонта или ТО по машине: совет мастера, «сделать в ближайшее время».
+ * Срок — дата (`date`), «с… по…» (`date` и `until`) или без срока (`date`
+ * нет). Ориентир по пробегу — справочный: ни на «пора», ни на «Главную» не
+ * влияет (Р-11). «Сделано» превращает план в запись «Ремонт» журнала.
+ */
+export type Plan = Base & {
+  carId: string
+  /** что сделать: «заменить ремень ГРМ», «ТО-4» */
+  what: string
+  /** срок или начало «с… по…», ГГГГ-ММ-ДД. Нет — план без срока */
+  date?: string
+  /** конец «с… по…», только вместе с `date`, не раньше него */
+  until?: string
+  /** ориентир по пробегу, км */
+  odometer?: number
+  note?: string
+  /** когда сделано, ГГГГ-ММ-ДД */
+  doneDate?: string
+  /** запись «Ремонт», которой сделано */
+  entryId?: string
+}
+
 // ─── Общие настройки (Р-17) ────────────────────────────────────────────────
 
 /**
@@ -164,6 +189,7 @@ export type StoreRecord = {
   parkings: Parking
   parkingVisits: ParkingVisit
   prefs: Prefs
+  plans: Plan
 }
 
 export type SyncedStore = keyof StoreRecord
@@ -185,8 +211,11 @@ export const V1_STORES = [
   'prefs',
 ] as const satisfies readonly SyncedStore[]
 
+/** Хранилища версии 2 — заводит шаг миграции `PLANS_STEP` (Р-28), а не `v1Stores`. */
+export const PLAN_STORES = ['plans'] as const satisfies readonly SyncedStore[]
+
 /** Порядок, в котором хранилища пишут импорт и слепок: справочники раньше записей. */
-export const SYNCED_STORES = [...V1_STORES] as const satisfies readonly SyncedStore[]
+export const SYNCED_STORES = [...V1_STORES, ...PLAN_STORES] as const satisfies readonly SyncedStore[]
 
 /**
  * Хранилища с записями человека — все, кроме общих настроек. По ним главный
@@ -194,7 +223,22 @@ export const SYNCED_STORES = [...V1_STORES] as const satisfies readonly SyncedSt
  */
 export const RECORD_STORES: readonly SyncedStore[] = SYNCED_STORES.filter((store) => store !== 'prefs')
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
-/** Шагов нет: это первая схема (Р-20). Реестр заведён пустым с первого дня. */
-export const MIGRATIONS: readonly Migration[] = []
+/**
+ * Первая миграция «Авто» (Р-28): хранилище планов. Только добавляет — записи
+ * восьми хранилищ версии 1 шаг не трогает. Индекс один — `updatedAt`, нужен
+ * слиянию: планов десятки, читаются целиком.
+ */
+const PLANS_STEP: Migration = {
+  to: 2,
+  note: 'Планы ремонта и ТО по машине — хранилище plans (Р-28). Записи других хранилищ не трогаются.',
+  additive: true,
+  run: (db) => {
+    const store = db.createObjectStore('plans', { keyPath: 'id' })
+    store.createIndex('updatedAt', 'updatedAt') // нужен слиянию
+  },
+}
+
+/** Шаги по порядку версий. Реестр заведён пустым с первого дня (Р-20). */
+export const MIGRATIONS: readonly Migration[] = [PLANS_STEP]
