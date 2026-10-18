@@ -27,11 +27,15 @@
  * никак; в ТЦ в субботу хуже, чем в воскресенье. Часть отметок — без минут
  * поиска, несколько — с заметкой.
  *
+ * Планы (#34, Р-28): просроченный, «с… по…», который идёт, без срока
+ * с ориентиром по пробегу и один сделанный — ремонтом колодок из журнала.
+ * На «Главной» демо — строка «пора».
+ *
  * Чистая функция, без React и без базы: засевает ядро при создании базы
  * `avto-demo`. Данные выдуманные — репозиторий публичный.
  */
 
-import type { Car, Entry, EntryKind, Parking, ParkingVisit, Point, Route, StoreRecord, SyncedStore, Trip } from '../app/model.ts'
+import type { Car, Entry, EntryKind, Parking, ParkingVisit, Plan, Point, Route, StoreRecord, SyncedStore, Trip } from '../app/model.ts'
 import { round2 } from '../modules/log/numbers.ts'
 import { weekdayOf } from '../modules/parking/stats.ts'
 import { isWeekend } from '../modules/routes/compare.ts'
@@ -263,6 +267,42 @@ const NO_MINUTES_EVERY = 4
 /** За сколько дней до входа — поездка в Тверь. */
 const STATION_AGO = 33
 
+// ─── Планы ─────────────────────────────────────────────────────────────────
+
+/**
+ * План демо: заведён за `made` дней до входа; срок — дни от входа: `from`
+ * без `until` — дата, с `until` — «с… по…», без `from` — без срока.
+ * `odometer` — ориентир по пробегу: ближайшие круглые десять тысяч.
+ */
+type PlanDemo = {
+  car: CarKey
+  made: number
+  what: string
+  from?: number
+  until?: number
+  odometer?: boolean
+  note?: string
+}
+
+const PLANS: readonly PlanDemo[] = [
+  // Просрочен: срок прошёл пять дней назад.
+  { car: 'daily', made: 30, what: 'заменить задние колодки', from: -5, note: 'скрипят при торможении' },
+  // «С… по…» идёт: начался десять дней назад, кончится через двадцать.
+  { car: 'rare', made: 20, what: 'ТО: масло и фильтры', from: -10, until: 20 },
+  // Без срока, с ориентиром по пробегу — совет мастера.
+  { car: 'daily', made: 40, what: 'заменить ремень ГРМ', odometer: true, note: 'совет мастера на СТО на Лесной' },
+]
+
+/** Ориентир по пробегу — кратно этому, вверх от нынешнего пробега. */
+const PLAN_ODOMETER_STEP = 10_000
+
+/** Сделанный план — ремонт журнала с этим «что делали». */
+const PLAN_DONE_WHAT = 'замена передних колодок'
+
+/** Заведён за столько дней до ремонта, срок — через столько дней после заведения. */
+const PLAN_DONE_BEFORE = 14
+const PLAN_DONE_TERM = 10
+
 // ─── Сборка ────────────────────────────────────────────────────────────────
 
 /** Полночь дня по местному времени, мс: от неё — время внесения записи. */
@@ -291,8 +331,8 @@ export function demoData(day: DateStr): DemoData {
   const rare = carOf('rare')
   const carIds: Record<CarKey, string> = { daily: daily.id, rare: rare.id }
 
-  type Plan = { car: CarKey; ago: number; build: (base: Entry) => Entry }
-  const plans: Plan[] = []
+  type EntryPlan = { car: CarKey; ago: number; build: (base: Entry) => Entry }
+  const plans: EntryPlan[] = []
 
   const fill = (
     car: CarKey,
@@ -461,6 +501,29 @@ export function demoData(day: DateStr): DemoData {
     workday++
   }
 
+  // Планы: заведены в свой день до входа; сделанный — тем ремонтом журнала,
+  // что в нём назван (`PLAN_DONE_WHAT`).
+  const planOf = (each: PlanDemo): Plan => {
+    const plan: Plan = { ...stamp(addDays(day, -each.made)), carId: carIds[each.car], what: each.what }
+    if (each.from !== undefined) plan.date = addDays(day, each.from)
+    if (each.until !== undefined) plan.until = addDays(day, each.until)
+    if (each.odometer) plan.odometer = Math.ceil(odometerAt(each.car, 0) / PLAN_ODOMETER_STEP) * PLAN_ODOMETER_STEP
+    if (each.note) plan.note = each.note
+    return plan
+  }
+  const carPlans = PLANS.map(planOf)
+  const repair = entries.find((entry) => entry.kind === 'repair' && entry.what === PLAN_DONE_WHAT)
+  if (repair) {
+    carPlans.push({
+      ...stamp(addDays(repair.date, -PLAN_DONE_BEFORE)),
+      carId: repair.carId,
+      what: PLAN_DONE_WHAT,
+      date: addDays(repair.date, -PLAN_DONE_BEFORE + PLAN_DONE_TERM),
+      doneDate: repair.date,
+      entryId: repair.id,
+    })
+  }
+
   return {
     cars: [daily, rare],
     entries,
@@ -470,5 +533,6 @@ export function demoData(day: DateStr): DemoData {
     parkings: Object.values(parkings),
     parkingVisits: visits,
     prefs: [{ ...stamp(first), id: PREFS_ID, currency: DEFAULT_CURRENCY }],
+    plans: carPlans,
   }
 }

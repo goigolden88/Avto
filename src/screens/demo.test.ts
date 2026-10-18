@@ -6,6 +6,7 @@ import { currentPeriod, type LogFilter } from '../modules/log/filter.ts'
 import { cheapStations, fuelNotes, perKm, periodStats } from '../modules/log/stats.ts'
 import { parkingsByCity, visitsOf } from '../modules/parking/parkings.ts'
 import { parkingStats, percent } from '../modules/parking/stats.ts'
+import { dueCount, lastReading, listPlans, planState } from '../modules/plans/plans.ts'
 import { readCurrency } from '../modules/prefs/prefs.ts'
 import { rankRoutes } from '../modules/routes/compare.ts'
 import { pairsOf } from '../modules/routes/routes.ts'
@@ -42,8 +43,18 @@ describe.each(DAYS)('демо от %s', (day) => {
     expect(checkDemo(config, day)).toEqual([])
   })
 
-  it('id — ULID у всего, машины, точки, маршруты, места и записи', () => {
-    const all = [...data.cars, ...entries, ...data.points, ...data.routes, ...data.trips, ...data.parkings, ...data.parkingVisits, ...data.prefs]
+  it('id — ULID у всего, машины, точки, маршруты, места, записи и планы', () => {
+    const all = [
+      ...data.cars,
+      ...entries,
+      ...data.points,
+      ...data.routes,
+      ...data.trips,
+      ...data.parkings,
+      ...data.parkingVisits,
+      ...data.prefs,
+      ...data.plans,
+    ]
     for (const record of all) {
       if (record.id !== 'prefs:main') expect(isUlid(record.id)).toBe(true)
     }
@@ -279,6 +290,42 @@ describe.each(DAYS)('демо от %s', (day) => {
       const search = statsOf('вдоль забора у работы').search
       expect(search.median).not.toBeNull()
       expect(search.without).toBeGreaterThan(0)
+    })
+  })
+
+  describe('планы', () => {
+    const list = listPlans(data.plans, day)
+    const states = list.open.map((plan) => planState(plan, day))
+
+    it('просроченный, «с… по…», который идёт, без срока с ориентиром по пробегу — и один сделанный', () => {
+      expect(states).toEqual(['overdue', 'due', 'none'])
+      const [, range, open] = list.open
+      expect(range?.until).toBeDefined()
+      expect(open?.odometer ?? 0).toBeGreaterThan(lastReading(open?.carId ?? '', entries)?.odometer ?? Infinity)
+      expect(list.done).toHaveLength(1)
+    })
+
+    it('на «Главной» демо — строка «пора»', () => {
+      expect(dueCount(data.plans, day)).toBe(2)
+    })
+
+    it('сделанный ссылается на ремонт журнала своей машины, дата — его', () => {
+      const [done] = list.done
+      const repair = entries.find((entry) => entry.id === done?.entryId)
+      expect(repair?.kind).toBe('repair')
+      expect(repair?.carId).toBe(done?.carId)
+      expect(done?.doneDate).toBe(repair?.date)
+      expect(done?.what).toBe(repair?.what)
+    })
+
+    it('планы — у машин демо, сроки — днями, «сделано» — не в будущем', () => {
+      const carIds = new Set(data.cars.map((car) => car.id))
+      for (const plan of data.plans) {
+        expect(carIds.has(plan.carId)).toBe(true)
+        if (plan.date !== undefined) expect(isDateStr(plan.date)).toBe(true)
+        if (plan.until !== undefined) expect(plan.until >= (plan.date ?? '')).toBe(true)
+        if (plan.doneDate !== undefined) expect(plan.doneDate <= day).toBe(true)
+      }
     })
   })
 

@@ -35,6 +35,7 @@ const LABELS: Record<SyncedStore, string> = {
   parkings: 'Места парковки',
   parkingVisits: 'Наблюдения парковок',
   prefs: 'Общие настройки',
+  plans: 'Планы',
 }
 
 type Row = { store: SyncedStore; live: number; total: number }

@@ -28,11 +28,13 @@ export const config: AppConfig<StoreRecord> = {
   migrations: MIGRATIONS,
   stores: SYNCED_STORES,
 
-  // Раскладка версии 1 — все восемь хранилищ с первого дня (Р-20).
+  // Раскладка версии 1 — все восемь хранилищ с первого дня (Р-20). Планы
+  // заводит шаг миграции на версию 2 (Р-28).
   v1Stores: V1_STORES,
 
   // Сверх `updatedAt`: журнал и наблюдения читаются по дате и по тому, к чему
   // относятся, — машине, маршруту, месту. Справочники читаются целиком.
+  // Индексы хранилищ версии 2 заводит их шаг миграции, а не эта таблица (Я-08).
   indexes: {
     cars: [],
     entries: ['date', 'carId'],
@@ -42,6 +44,8 @@ export const config: AppConfig<StoreRecord> = {
     parkings: [],
     parkingVisits: ['date', 'parkingId'],
     prefs: [],
+    // Планов десятки — читаются целиком (Р-28).
+    plans: [],
   },
 
   // Справочники и настройки — одним файлом, записи — по году своей даты
@@ -55,6 +59,7 @@ export const config: AppConfig<StoreRecord> = {
     parkings: { split: 'none', path: 'parkings.json' },
     parkingVisits: { split: 'year', dir: 'parking-visits', dateOf: (visit) => visit.date },
     prefs: { split: 'none', path: 'prefs.json' },
+    plans: { split: 'none', path: 'plans.json' },
   },
 
   storeNotes: {
@@ -66,6 +71,7 @@ export const config: AppConfig<StoreRecord> = {
     parkings: 'места парковки',
     parkingVisits: 'наблюдения парковок — по году',
     prefs: 'общие настройки — одна запись',
+    plans: 'планы ремонта и ТО по машинам: что сделать, срок, сделано ли',
   },
 
   importFormat: 'avto-import',
