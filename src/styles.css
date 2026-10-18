@@ -98,6 +98,38 @@
   font-weight: 600;
 }
 
+/* Полоска бака в строке заправки (Р-25): было — серым, долито — акцентом,
+   рядом подпись числами — цвет не единственный признак. На узком экране
+   полоска ужимается, подпись не переносится. */
+.tank {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tank__bar {
+  display: flex;
+  flex: 0 1 120px;
+  min-width: 48px;
+  height: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.tank__was {
+  background: var(--muted);
+}
+
+.tank__added {
+  background: var(--accent);
+}
+
+.tank .muted {
+  white-space: nowrap;
+}
+
 /* «Итоги» над журналом: подписи и подзаголовки мельче блока, по машине —
    строкой: цена километра, основание, расход. */
 .totals__note {

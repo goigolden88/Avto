@@ -3,9 +3,10 @@
  *
  * Форма держит черновик строками — как в полях ввода; в запись он
  * превращается только при сохранении, вместе с проверкой и правилом двух
- * чисел из трёх у заправки (Р-06). Правка идёт поверх прежней записи: поля,
- * которых в форме нет (`tankBefore`, `tankAfter` — полоска бака придёт
- * отдельной задачей), остаются как были.
+ * чисел из трёх у заправки (Р-06). Правка идёт поверх прежней записи.
+ *
+ * Бак у заправки (Р-25): в форме — проценты, в записи — доля 0…1. Доля из
+ * импорта бывает без округления (0,333): неизменённое поле её не переписывает.
  *
  * Чистые функции, без React и без базы.
  */
@@ -35,6 +36,8 @@ export type KindField =
   | 'amount'
   | 'odometer'
   | 'consumption'
+  | 'tankBefore'
+  | 'tankAfter'
   | 'what'
   | 'service'
   | 'violation'
@@ -43,7 +46,7 @@ export type KindField =
 
 /** Какие поля у какого вида — в этом порядке они стоят в форме. */
 export const KIND_FIELDS: Record<EntryKind, readonly KindField[]> = {
-  fuel: ['station', 'fuel', 'liters', 'price', 'amount', 'odometer', 'consumption'],
+  fuel: ['station', 'fuel', 'liters', 'price', 'amount', 'odometer', 'consumption', 'tankBefore', 'tankAfter'],
   wash: ['amount', 'odometer'],
   repair: ['what', 'service', 'amount', 'odometer'],
   fine: ['violation', 'amount', 'paid', 'paidDate'],
@@ -53,7 +56,6 @@ export const KIND_FIELDS: Record<EntryKind, readonly KindField[]> = {
 /**
  * Поля записи, которые есть только у части видов. При смене вида чужие
  * стираются: у мойки не остаётся АЗС от заправки, которой она была.
- * Доля бака — заправки, хотя в форме её нет.
  */
 type KindOnly =
   | 'station'
@@ -86,15 +88,6 @@ const KIND_ONLY: readonly KindOnly[] = [
   'paidDate',
 ]
 
-/** Поля, которые форма не показывает, но которые принадлежат виду. */
-const HIDDEN_FIELDS: Record<EntryKind, readonly KindOnly[]> = {
-  fuel: ['tankBefore', 'tankAfter'],
-  wash: [],
-  repair: [],
-  fine: [],
-  other: [],
-}
-
 /** Подписи полей. «Что» у ремонта и у прочего звучит по-разному. */
 export function fieldLabel(field: KindField, kind: EntryKind): string {
   switch (field) {
@@ -112,6 +105,10 @@ export function fieldLabel(field: KindField, kind: EntryKind): string {
       return 'Пробег, км'
     case 'consumption':
       return 'Расход по компьютеру, л/100 км'
+    case 'tankBefore':
+      return 'Бак до'
+    case 'tankAfter':
+      return 'Бак после'
     case 'what':
       return kind === 'repair' ? 'Что делали' : 'Что'
     case 'service':
@@ -130,6 +127,32 @@ const NUMBER_FIELDS = ['liters', 'price', 'amount', 'odometer', 'consumption'] a
 
 type NumberField = (typeof NUMBER_FIELDS)[number]
 
+/** Поля бака заправки: в форме — проценты, в записи — доля 0…1. */
+export const TANK_FIELDS = ['tankBefore', 'tankAfter'] as const
+
+export type TankField = (typeof TANK_FIELDS)[number]
+
+/** Полный бак, %: больше в поле не бывает. */
+export const TANK_FULL = 100
+
+/** Быстрые кнопки у поля бака: нажал — в поле этот процент. */
+export const TANK_MARKS: readonly { label: string; percent: number }[] = [
+  { label: '¼', percent: TANK_FULL / 4 },
+  { label: '½', percent: TANK_FULL / 2 },
+  { label: '¾', percent: (TANK_FULL * 3) / 4 },
+  { label: 'полный', percent: TANK_FULL },
+]
+
+export const TANK_LESS = 'Бак после меньше, чем до: после заправки в баке не может стать меньше'
+
+/**
+ * Доля бака в процент для поля: 0,29 — «29», а не «28,999…». Двенадцать
+ * значащих цифр срезают хвост плавающей точки и оставляют настоящие знаки.
+ */
+export function tankInput(share: number | undefined): string {
+  return share === undefined ? '' : numberInput(Number((share * TANK_FULL).toPrecision(12)))
+}
+
 /** Черновик формы. Строки — как в полях; флажок «оплачен» — как флажок. */
 export type EntryDraft = {
   carId: string
@@ -143,6 +166,9 @@ export type EntryDraft = {
   amount: string
   odometer: string
   consumption: string
+  /** Проценты бака, а не доля. */
+  tankBefore: string
+  tankAfter: string
   what: string
   service: string
   violation: string
@@ -167,6 +193,8 @@ export function newDraft(carId: string, carFuel: string | undefined, date: strin
     amount: '',
     odometer: '',
     consumption: '',
+    tankBefore: '',
+    tankAfter: '',
     what: '',
     service: '',
     violation: '',
@@ -175,7 +203,7 @@ export function newDraft(carId: string, carFuel: string | undefined, date: strin
   }
 }
 
-/** Черновик правки: запись как есть, числа — с запятой. */
+/** Черновик правки: запись как есть, числа — с запятой, бак — в процентах. */
 export function draftOf(entry: Entry): EntryDraft {
   return {
     carId: entry.carId,
@@ -189,6 +217,8 @@ export function draftOf(entry: Entry): EntryDraft {
     amount: numberInput(entry.amount),
     odometer: numberInput(entry.odometer),
     consumption: numberInput(entry.consumption),
+    tankBefore: tankInput(entry.tankBefore),
+    tankAfter: tankInput(entry.tankAfter),
     what: entry.what ?? '',
     service: entry.service ?? '',
     violation: entry.violation ?? '',
@@ -256,10 +286,32 @@ function parseNumbers(draft: EntryDraft): Parsed {
   return { numbers, errors }
 }
 
+type ParsedTank = { percents: Partial<Record<TankField, number>>; errors: string[] }
+
+/** Проценты бака. Ноль — пустой бак, допустим; больше полного — ошибка. */
+function parseTank(draft: EntryDraft): ParsedTank {
+  const fields = KIND_FIELDS[draft.kind]
+  const percents: Partial<Record<TankField, number>> = {}
+  const errors: string[] = []
+  for (const field of TANK_FIELDS) {
+    if (!fields.includes(field)) continue
+    const value = parseNumber(draft[field])
+    if (value === undefined) continue
+    const label = fieldLabel(field, draft.kind)
+    if (Number.isNaN(value)) errors.push(`${label} — не число`)
+    else if (value > TANK_FULL) errors.push(`${label} — от 0 до ${TANK_FULL} %`)
+    else percents[field] = value
+  }
+  const { tankBefore, tankAfter } = percents
+  if (tankBefore !== undefined && tankAfter !== undefined && tankAfter < tankBefore) errors.push(TANK_LESS)
+  return { percents, errors }
+}
+
 /** Проверка черновика: можно ли сохранить и что посчитается. */
 export function checkDraft(draft: EntryDraft): DraftCheck {
   const { numbers, errors } = parseNumbers(draft)
   const badNumbers = errors.length > 0
+  errors.push(...parseTank(draft).errors)
   if (draft.carId === '') errors.push('Выберите машину')
   if (!isDateStr(draft.date)) errors.push('Укажите дату')
 
@@ -298,8 +350,9 @@ export function buildEntry(draft: EntryDraft, base: Entry | undefined, id: strin
   if (check.errors.length > 0) return { ok: false, errors: check.errors }
 
   const { numbers } = parseNumbers(draft)
+  const { percents } = parseTank(draft)
   const kind = draft.kind
-  const keep = new Set<string>([...KIND_FIELDS[kind], ...HIDDEN_FIELDS[kind]])
+  const keep = new Set<string>(KIND_FIELDS[kind])
 
   const entry: Entry = {
     ...base,
@@ -335,6 +388,16 @@ export function buildEntry(draft: EntryDraft, base: Entry | undefined, id: strin
   text('violation')
   number('odometer')
   number('consumption')
+
+  // Поле бака не тронуто — доля прежняя до последнего знака: 33,3 ÷ 100
+  // не обязательно даёт ту же 0,333, что пришла импортом.
+  for (const field of TANK_FIELDS) {
+    delete entry[field]
+    const value = percents[field]
+    if (!keep.has(field) || value === undefined) continue
+    const before = base?.[field]
+    entry[field] = before !== undefined && draft[field].trim() === tankInput(before) ? before : value / TANK_FULL
+  }
 
   if (kind === 'fuel') {
     const solution = solveFuel(numbers)
@@ -389,4 +452,30 @@ export function entryDetails(entry: Entry, currency: string): string {
       break
   }
   return parts.join(' · ')
+}
+
+/** Полоска бака: `was` — сколько было, `added` — сколько долито, оба в процентах ширины. */
+export type TankGauge = { was: number; added: number; text: string }
+
+/**
+ * Полоска бака в строке заправки; подпись — числами, до целого процента:
+ * цвет не единственный признак. Есть одно значение — полоска по нему.
+ * «После» меньше «до» (так бывает у импорта) — полоска по «до», подпись
+ * как есть. Доли бака нет — ничего.
+ */
+export function tankGauge(entry: Entry): TankGauge | null {
+  if (entry.kind !== 'fuel') return null
+  const { tankBefore: before, tankAfter: after } = entry
+  // Неразрывный пробел: «25 %» не разрывается на узком экране.
+  const percent = (share: number) => `${formatNumber(share * TANK_FULL, 0)} %`
+  if (before !== undefined && after !== undefined) {
+    return {
+      was: before * TANK_FULL,
+      added: Math.max(0, after - before) * TANK_FULL,
+      text: `бак ${percent(before)} → ${percent(after)}`,
+    }
+  }
+  if (before !== undefined) return { was: before * TANK_FULL, added: 0, text: `бак до ${percent(before)}` }
+  if (after !== undefined) return { was: after * TANK_FULL, added: 0, text: `бак после ${percent(after)}` }
+  return null
 }

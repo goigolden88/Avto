@@ -10,6 +10,10 @@ import {
   KINDS,
   newDraft,
   sortEntries,
+  TANK_LESS,
+  TANK_MARKS,
+  tankGauge,
+  tankInput,
   withCar,
   withKind,
   withPaid,
@@ -36,7 +40,17 @@ describe('виды записей', () => {
   })
 
   it('поля по виду', () => {
-    expect(KIND_FIELDS.fuel).toEqual(['station', 'fuel', 'liters', 'price', 'amount', 'odometer', 'consumption'])
+    expect(KIND_FIELDS.fuel).toEqual([
+      'station',
+      'fuel',
+      'liters',
+      'price',
+      'amount',
+      'odometer',
+      'consumption',
+      'tankBefore',
+      'tankAfter',
+    ])
     expect(KIND_FIELDS.wash).toEqual(['amount', 'odometer'])
     expect(KIND_FIELDS.repair).toEqual(['what', 'service', 'amount', 'odometer'])
     expect(KIND_FIELDS.fine).toEqual(['violation', 'amount', 'paid', 'paidDate'])
@@ -221,6 +235,132 @@ describe('запись из формы', () => {
       amount: '2583,49',
       price: '',
     })
+  })
+})
+
+describe('бак — Р-25', () => {
+  const fill = (fields: Partial<EntryDraft>) => fuel({ liters: '40', price: '55', ...fields })
+  const saved = (draft: EntryDraft, base?: Entry) => {
+    const result = buildEntry(draft, base, 'E1', at)
+    if (!result.ok) throw new Error(result.errors.join('; '))
+    return result.entry
+  }
+
+  it('быстрые кнопки — ¼, ½, ¾, полный: 25, 50, 75, 100', () => {
+    expect(TANK_MARKS).toEqual([
+      { label: '¼', percent: 25 },
+      { label: '½', percent: 50 },
+      { label: '¾', percent: 75 },
+      { label: 'полный', percent: 100 },
+    ])
+  })
+
+  it('в форме — проценты, в записи — доля; 0 — пустой бак, дробные — можно', () => {
+    expect(saved(fill({ tankBefore: '25', tankAfter: '100' }))).toMatchObject({ tankBefore: 0.25, tankAfter: 1 })
+    expect(saved(fill({ tankBefore: '0', tankAfter: '37,5' }))).toMatchObject({ tankBefore: 0, tankAfter: 0.375 })
+  })
+
+  it('по желанию: без бака — как раньше; одно из двух — можно', () => {
+    const plain = saved(fill({}))
+    expect('tankBefore' in plain || 'tankAfter' in plain).toBe(false)
+    const after = saved(fill({ tankAfter: '100' }))
+    expect(after.tankAfter).toBe(1)
+    expect('tankBefore' in after).toBe(false)
+  })
+
+  it('не число, с минусом, больше 100 — названо, не сохраняется', () => {
+    expect(checkDraft(fill({ tankBefore: 'полбака' })).errors).toEqual(['Бак до — не число'])
+    expect(checkDraft(fill({ tankBefore: '-5' })).errors).toEqual(['Бак до — не число'])
+    expect(checkDraft(fill({ tankAfter: '120' })).errors).toEqual(['Бак после — от 0 до 100 %'])
+    expect(buildEntry(fill({ tankAfter: '120' }), undefined, 'E1', at)).toMatchObject({ ok: false })
+  })
+
+  it('ошибка бака не прячет, каких чисел заправки не хватает', () => {
+    expect(checkDraft(fuel({ liters: '40', tankAfter: '120' })).errors).toEqual([
+      'Бак после — от 0 до 100 %',
+      'Введите ещё цену литра или сумму — третье посчитается само',
+    ])
+  })
+
+  it('после меньше до — нельзя; равно — можно', () => {
+    expect(checkDraft(fill({ tankBefore: '50', tankAfter: '25' })).errors).toEqual([TANK_LESS])
+    expect(buildEntry(fill({ tankBefore: '50', tankAfter: '25' }), undefined, 'E1', at)).toMatchObject({ ok: false })
+    expect(checkDraft(fill({ tankBefore: '50', tankAfter: '50' })).errors).toEqual([])
+  })
+
+  it('у других видов полей бака нет: в черновике остались — в запись не уходят и не проверяются', () => {
+    for (const kind of ['wash', 'repair', 'fine', 'other'] as const) {
+      expect(KIND_FIELDS[kind]).not.toContain('tankBefore')
+      const draft = fuel({ kind, amount: '500', tankBefore: '90', tankAfter: 'ноль' })
+      expect(checkDraft(draft).errors).toEqual([])
+      const entry = saved(draft)
+      expect('tankBefore' in entry || 'tankAfter' in entry).toBe(false)
+    }
+  })
+
+  it('доля импорта — процентом без хвоста плавающей точки', () => {
+    expect(tankInput(0.25)).toBe('25')
+    expect(tankInput(0.29)).toBe('29')
+    expect(tankInput(0.333)).toBe('33,3')
+    expect(tankInput(0.375)).toBe('37,5')
+    expect(tankInput(0)).toBe('0')
+    expect(tankInput(undefined)).toBe('')
+    expect(draftOf(entry('E1', { kind: 'fuel', amount: 2200, tankBefore: 0.29, tankAfter: 1 }))).toMatchObject({
+      tankBefore: '29',
+      tankAfter: '100',
+    })
+  })
+
+  it('правка без бака не трогает долю до последнего знака', () => {
+    for (const [before, after] of [
+      [0.29, 0.57],
+      [0.333, 0.667],
+      [0.1234567, 0.9876543],
+    ] as const) {
+      const base = entry('E1', { kind: 'fuel', liters: 40, price: 55, amount: 2200, tankBefore: before, tankAfter: after })
+      const edited = saved({ ...draftOf(base), station: 'Лукойл' }, base)
+      expect(edited.tankBefore).toBe(before)
+      expect(edited.tankAfter).toBe(after)
+    }
+  })
+
+  it('правка бака — новая доля; стёртое поле — доля уходит', () => {
+    const base = entry('E1', { kind: 'fuel', liters: 40, price: 55, amount: 2200, tankBefore: 0.333, tankAfter: 1 })
+    const edited = saved({ ...draftOf(base), tankBefore: '40', tankAfter: ' ' }, base)
+    expect(edited.tankBefore).toBe(0.4)
+    expect('tankAfter' in edited).toBe(false)
+  })
+
+  it('импорт с «после» меньше «до»: правка не сохраняется, пока не поправить', () => {
+    const base = entry('E1', { kind: 'fuel', liters: 40, price: 55, amount: 2200, tankBefore: 0.8, tankAfter: 0.5 })
+    expect(buildEntry(draftOf(base), base, 'E1', at)).toEqual({ ok: false, errors: [TANK_LESS] })
+    expect(saved({ ...draftOf(base), tankAfter: '100' }, base)).toMatchObject({ tankBefore: 0.8, tankAfter: 1 })
+  })
+
+  it('полоска: до и после — было и долито, подпись числами до целого', () => {
+    const gauge = tankGauge(entry('E1', { kind: 'fuel', tankBefore: 0.25, tankAfter: 1 }))
+    expect(gauge && { ...gauge, text: flat(gauge.text) }).toEqual({ was: 25, added: 75, text: 'бак 25 % → 100 %' })
+    expect(flat(tankGauge(entry('E1', { kind: 'fuel', tankBefore: 0.29, tankAfter: 0.375 }))?.text ?? '')).toBe(
+      'бак 29 % → 38 %',
+    )
+  })
+
+  it('полоска: одно значение — по нему', () => {
+    const before = tankGauge(entry('E1', { kind: 'fuel', tankBefore: 0.25 }))
+    expect(before && { ...before, text: flat(before.text) }).toEqual({ was: 25, added: 0, text: 'бак до 25 %' })
+    const after = tankGauge(entry('E1', { kind: 'fuel', tankAfter: 1 }))
+    expect(after && { ...after, text: flat(after.text) }).toEqual({ was: 100, added: 0, text: 'бак после 100 %' })
+  })
+
+  it('полоска: «после» меньше «до» из импорта — как есть; без доли и не у заправки — ничего', () => {
+    const odd = tankGauge(entry('E1', { kind: 'fuel', tankBefore: 0.8, tankAfter: 0.5 }))
+    expect(odd && { ...odd, text: flat(odd.text) }).toEqual({ was: 80, added: 0, text: 'бак 80 % → 50 %' })
+    expect(tankGauge(entry('E1', { kind: 'fuel', liters: 40 }))).toBeNull()
+    expect(tankGauge(entry('E1', { kind: 'wash', tankBefore: 0.5 }))).toBeNull()
+  })
+
+  it('строка «главное» про бак не говорит — у бака своя полоска', () => {
+    expect(entryDetails(entry('E1', { kind: 'fuel', liters: 40, tankBefore: 0.25, tankAfter: 1 }), '₽')).not.toContain('бак')
   })
 })
 

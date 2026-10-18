@@ -79,7 +79,7 @@ describe.each(DAYS)('демо от %s', (day) => {
   })
 
   it('у записи — только поля её вида', () => {
-    const common = new Set(['id', 'updatedAt', 'deleted', 'carId', 'kind', 'date', 'amount', 'note', 'tankBefore', 'tankAfter'])
+    const common = new Set(['id', 'updatedAt', 'deleted', 'carId', 'kind', 'date', 'amount', 'note'])
     for (const entry of entries) {
       const own = new Set<string>(KIND_FIELDS[entry.kind])
       for (const key of Object.keys(entry)) expect(common.has(key) || own.has(key), `${entry.kind}.${key}`).toBe(true)
@@ -92,6 +92,21 @@ describe.each(DAYS)('демо от %s', (day) => {
       const expected = (fill.liters ?? 0) * (fill.price ?? 0)
       expect(Math.abs(fill.amount - expected) / fill.amount).toBeLessThanOrEqual(0.01)
       expect(fill.consumption !== undefined).toBe(fill.carId === daily?.id)
+    }
+  })
+
+  it('бак: у части заправок каждодневной — до и после, после не меньше до; у редкой — нет', () => {
+    const fills = entries.filter((entry) => entry.kind === 'fuel')
+    const withTank = fills.filter((fill) => fill.tankBefore !== undefined || fill.tankAfter !== undefined)
+    expect(withTank.length).toBeGreaterThan(0)
+    expect(fills.filter((fill) => fill.carId === daily?.id && fill.tankBefore === undefined).length).toBeGreaterThan(0)
+    for (const fill of withTank) {
+      expect(fill.carId).toBe(daily?.id)
+      const before = fill.tankBefore ?? -1
+      const after = fill.tankAfter ?? -1
+      expect(before).toBeGreaterThanOrEqual(0)
+      expect(after).toBeGreaterThanOrEqual(before)
+      expect(after).toBeLessThanOrEqual(1)
     }
   })
 
