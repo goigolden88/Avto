@@ -142,8 +142,11 @@ export type PeriodStats = {
 
 type Reading = { date: DateStr; id: string; km: number }
 
-/** Пробег машины за период по показаниям одометра записей любого вида. */
-function distanceOf(carId: string, entries: readonly Entry[], range: Period | null): number | null {
+/**
+ * Пробег машины за период по показаниям одометра записей любого вида.
+ * Общий для «Итогов» и среза итогов (`summary/slice.ts`): правило одно (Р-23).
+ */
+export function distanceOf(carId: string, entries: readonly Entry[], range: Period | null): number | null {
   const readings: Reading[] = []
   // С кривой датой показание не встать ни до, ни после: в пробег не идёт.
   for (const entry of [...entries].sort(byTime)) {
@@ -194,7 +197,8 @@ export function periodStats(entries: readonly Entry[], filter: LogFilter): Perio
   return { records: shown.length, total: sum(shown), kinds, cars }
 }
 
-function sum(entries: readonly Entry[]): number {
+/** Деньги записей до копейки; запись без числа суммы — ноль. */
+export function sum(entries: readonly Entry[]): number {
   return round2(entries.reduce((total, entry) => total + (isNumber(entry.amount) ? entry.amount : 0), 0))
 }
 

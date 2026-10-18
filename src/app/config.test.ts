@@ -97,9 +97,9 @@ describe('то, что не меняется после первого рели�
     }
   })
 
-  it('демо есть (задача 4 Авто-3), среза пока нет — задача 7', () => {
+  it('демо есть (задача 4 Авто-3), срез итогов — тоже (задача 7, Р-27)', () => {
     expect(typeof config.demo).toBe('function')
-    expect(config.summary).toBeUndefined()
+    expect(typeof config.summary).toBe('function')
   })
 })
 
