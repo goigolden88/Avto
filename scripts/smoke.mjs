@@ -22,7 +22,8 @@
  * Обвязка — из прогона «Трапезы», у них — из «Делу Время»; сценарий — свой:
  * скелет Авто-3 (главный экран, «Настройки», валюта, синхронизация, работа
  * без сети), задача 2 — машины и журнал, свои адреса установки (Р-22),
- * задача 4 — демо, задача 5 — импорт, задача 6 — маршруты. Проверки
+ * задача 4 — демо, задача 5 — импорт, задача 6 — маршруты, бак заправки
+ * (#24). Проверки
  * прибавляются вместе с экранами.
  */
 
@@ -1395,6 +1396,39 @@ async function importScenario() {
     flat(journal),
   )
   check('штраф с «Уплачено» — без «не оплачен»', has(journal, 'превышение') && !has(journal, 'не оплачен'), flat(journal))
+  const rowOf = (station) => journal.split(' | ').find((each) => each.includes(station)) ?? ''
+  check(
+    'импортированная доля бака — полоской: у Лукойла «бак 25 % → 100 %», у Газпрома про бак ничего',
+    has(rowOf('Лукойл'), 'бак 25 % → 100 %') && !has(rowOf('Газпром'), 'бак'),
+    `${rowOf('Лукойл')} | ${rowOf('Газпром')}`,
+  )
+
+  // Правка импортированной заправки без бака: в полях — проценты, доля прежняя.
+  const tankInBase = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const all = open.result.transaction('entries').objectStore('entries').getAll()
+        all.onsuccess = () => {
+          open.result.close()
+          const fill = all.result.find((each) => each.station === 'Лукойл' && each.date === '${year}-03-01')
+          done(fill ? { before: fill.tankBefore, after: fill.tankAfter, note: fill.note ?? '' } : null)
+        }
+      }
+    })`)
+  await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes('Лукойл'))?.click()`)
+  await sleep(500)
+  const tankFields = await act(`return field('tankBefore').value + ' / ' + field('tankAfter').value`)
+  check('правка импортированной заправки: в полях бака «25» и «100»', tankFields === '25 / 100', tankFields)
+  await act(`set(field('note'), 'бак не трогал')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  const kept = await tankInBase()
+  check(
+    'сохранено без правки бака — доля та же: 0,25 и 1',
+    kept?.before === 0.25 && kept?.after === 1 && kept?.note === 'бак не трогал',
+    JSON.stringify(kept),
+  )
   const totals = await plain()
   check(
     '«Итоги» за год: цена километра и траты по всем четырём видам',
@@ -1523,6 +1557,54 @@ async function journalScenario() {
   await tap('Сохранить', 800)
   journal = await rows()
   check('правка видна в журнале, сумма — как введена', has(journal, '2 000 $') && !has(journal, '2 220 $'), journal)
+  check('заправка без доли бака — в строке ничего про бак', !has(journal, 'бак ') && (await run(`document.querySelector('.tank') === null`)) === true, journal)
+
+  // ─ Бак (Р-25): кнопкой и числом; «после» меньше «до» — не сохранить.
+  const tankTap = (group, label) =>
+    act(`[...document.querySelectorAll('[aria-label="${group} — быстро"] button')].find((el) => el.textContent.trim() === '${label}')?.click()`)
+  await act(`document.querySelector('.entry')?.click()`)
+  await sleep(500)
+  check('у заправки — поля «Бак до» и «Бак после», пустые', (await value('tankBefore')) === '' && (await value('tankAfter')) === '', `${await value('tankBefore')} / ${await value('tankAfter')}`)
+  await tankTap('Бак до', '¾')
+  await act(`set(field('tankAfter'), '10')`)
+  await sleep(300)
+  check('кнопка «¾» ставит 75', (await value('tankBefore')) === '75', await value('tankBefore'))
+  await tap('Сохранить', 600)
+  check(
+    '«после» меньше «до» — понятная фраза, запись не сохраняется',
+    has(await screen(), 'после заправки в баке не может стать меньше') && has(await screen(), 'Запись') && (await value('tankAfter')) === '10',
+    line(await screen(), 'Бак после'),
+  )
+  await tankTap('Бак до', '¼')
+  await tankTap('Бак после', 'полный')
+  await sleep(300)
+  check('«¼» и «полный» — 25 и 100', (await value('tankBefore')) === '25' && (await value('tankAfter')) === '100', `${await value('tankBefore')} / ${await value('tankAfter')}`)
+  await tap('Сохранить', 800)
+  journal = await rows()
+  check('в строке заправки — полоска и «бак 25 % → 100 %»', has(journal, 'бак 25 % → 100 %') && (await run(`document.querySelectorAll('.tank__bar').length`)) === 1, journal)
+
+  // Узкий экран телефона: полоска видна, подпись целиком в строке.
+  await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 640, deviceScaleFactor: 2, mobile: true })
+  await sleep(400)
+  const narrow = await run(`(() => {
+    const bar = document.querySelector('.tank__bar').getBoundingClientRect()
+    const text = document.querySelector('.tank .muted').getBoundingClientRect()
+    const row = document.querySelector('.entry').getBoundingClientRect()
+    return { bar: Math.round(bar.width), fits: text.right <= row.right + 0.5 && text.height < 30 }
+  })()`)
+  await send('Emulation.clearDeviceMetricsOverride')
+  await sleep(300)
+  check('на узком экране полоска видна и подпись не вылезает', narrow?.bar >= 40 && narrow?.fits === true, JSON.stringify(narrow))
+
+  // Правка без бака: проценты на месте; стёртое поле — доля уходит.
+  await act(`document.querySelector('.entry')?.click()`)
+  await sleep(500)
+  check('правка: в полях бака — проценты записи', (await value('tankBefore')) === '25' && (await value('tankAfter')) === '100', `${await value('tankBefore')} / ${await value('tankAfter')}`)
+  await act(`set(field('tankBefore'), '')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  journal = await rows()
+  check('стёрт «Бак до» — в строке «бак после 100 %»', has(journal, 'бак после 100 %') && !has(journal, '→'), journal)
 
   // ─ Мойка: без суммы не сохранить; с суммой — в журнале.
   await tap('Добавить запись')
@@ -1530,8 +1612,10 @@ async function journalScenario() {
   await tap('Мойка', 300)
   const washForm = await screen()
   check(
-    'у мойки поля — сумма и пробег, без литров',
-    (await act(`return field('liters') === null && field('amount') !== null && field('odometer') !== null`)) === true,
+    'у мойки поля — сумма и пробег, без литров и бака',
+    (await act(
+      `return field('liters') === null && field('tankBefore') === null && field('tankAfter') === null && field('amount') !== null && field('odometer') !== null`,
+    )) === true,
     flat(washForm),
   )
   await tap('Сохранить')
