@@ -6,6 +6,7 @@ import { CoreProvider } from './shared/ui/core.tsx'
 import { Layout, type Tab } from './shared/ui/Layout.tsx'
 import { Home } from './screens/Home.tsx'
 import { Parkings } from './screens/Parkings.tsx'
+import { Plans } from './screens/Plans.tsx'
 import { RoutesTab } from './screens/RoutesTab.tsx'
 import { Settings } from './screens/Settings.tsx'
 
@@ -23,9 +24,11 @@ import { Settings } from './screens/Settings.tsx'
  */
 const TABS: readonly Tab[] = [
   // Журнал живёт на «Главной». Парковки — не вкладкой, а своим экраном
-  // внутри «Маршрутов»: ими пользуются редко (Р-24).
+  // внутри «Маршрутов»: ими пользуются редко (Р-24). Планы — третьей
+  // вкладкой (Р-28).
   { to: '/', name: 'Главная', end: true },
   { to: '/routes', name: 'Маршруты', end: false },
+  { to: '/plans', name: 'Планы', end: false },
 ]
 
 export function App() {
@@ -41,6 +44,7 @@ export function App() {
             {/* Парковки — экран по ссылке с «Маршрутов», не вкладка (Р-24):
                 вкладка «Маршруты» на нём остаётся подсвеченной. */}
             <Route path="routes/parkings" element={<Parkings />} />
+            <Route path="plans" element={<Plans />} />
             {/* «Настройки» — не вкладка: шестерёнка в шапке главного экрана. */}
             <Route path="settings" element={<Settings />} />
             {/* Незнакомый адрес — на главный: приложение открывается,

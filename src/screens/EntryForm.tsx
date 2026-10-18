@@ -57,6 +57,7 @@ export function EntryForm({
   base,
   cars,
   currency,
+  onSaved,
   onDone,
 }: {
   initial: EntryDraft
@@ -65,12 +66,17 @@ export function EntryForm({
   /** Живые машины, и в архиве тоже: у правки старой записи машина могла уйти в архив. */
   cars: readonly Car[]
   currency: string
+  /** Запись сохранена — до `onDone`: «Сделано» у плана ставит ему дату и ссылку на запись (Р-28). */
+  onSaved?: (entry: Entry) => Promise<unknown>
   onDone: () => void
 }) {
   const [draft, setDraft] = useState(initial)
   const [tried, setTried] = useState(false)
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState('')
+  // Id новой записи — один на форму: повторное «Сохранить» после ошибки
+  // перепишет ту же запись, а не заведёт вторую.
+  const [newId] = useState(ulid)
 
   const check = checkDraft(draft)
   const fuelOf = (carId: string) => cars.find((car) => car.id === carId)?.fuel
@@ -85,11 +91,12 @@ export function EntryForm({
 
   async function save() {
     setTried(true)
-    const result = buildEntry(draft, base, ulid(), nowIso())
+    const result = buildEntry(draft, base, newId, nowIso())
     if (!result.ok) return
     setError('')
     try {
       await db.put('entries', result.entry)
+      await onSaved?.(result.entry)
       onDone()
     } catch (failure) {
       setError(describe(failure))

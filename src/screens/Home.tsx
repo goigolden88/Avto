@@ -10,12 +10,14 @@ import { useFirstRun } from '../shared/screens/useFirstRun.ts'
 import { useWhatsNew } from '../shared/screens/useWhatsNew.ts'
 import { WhatsNew } from '../shared/screens/WhatsNew.tsx'
 import { Journal } from './Journal.tsx'
+import { PlansLine } from './Plans.tsx'
 import { TimerLine } from './RoutesTab.tsx'
 import { useLog, useMainCar } from './useLog.ts'
 
 /**
  * Главный экран: шапка с шестерёнкой, строка об идущем замере поездки,
- * «Что нового» после обновления и журнал (Р-03). Без машины журнал зовёт
+ * строка о планах, срок которых пришёл (Р-28), «Что нового» после
+ * обновления и журнал (Р-03). Без машины журнал зовёт
  * её завести.
  *
  * Пустому устройству без токена «семья» — один раз предложение демо
@@ -48,6 +50,9 @@ export function Home() {
 
       {/* Замер, начатый на «Маршрутах», виден и здесь (Р-13). */}
       <TimerLine />
+
+      {/* Срок плана пришёл — строка со ссылкой на «Планы»; нет — ничего (Р-28). */}
+      <PlansLine />
 
       {/* После обновления — что поменялось. Свежей установке — ничего. */}
       {news.show.length > 0 && <WhatsNew changes={news.show} onDone={news.dismiss} />}
