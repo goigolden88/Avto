@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Entry } from '../app/model.ts'
 import { activeCars, defaultCarId, MISSING_CAR, sortCars } from '../modules/log/cars.ts'
-import { draftOf, entryDetails, KIND_LABELS, KINDS, newDraft, sortEntries, type EntryDraft } from '../modules/log/entries.ts'
+import {
+  draftOf,
+  entryDetails,
+  KIND_LABELS,
+  KINDS,
+  newDraft,
+  sortEntries,
+  tankGauge,
+  type EntryDraft,
+} from '../modules/log/entries.ts'
 import {
   ALL,
   currentPeriod,
@@ -40,7 +49,7 @@ type Editing = { draft: EntryDraft; base?: Entry } | null
  * Журнал на «Главной» (Р-03): заправки, мойки, ремонты, штрафы и прочее
  * одним списком, свежие сверху. Отбор — по машине, виду и периоду; рядом
  * с ним — сколько записей показано. Под отбором — «Итоги» (Р-23), у
- * заправки в строке — км с прошлой и рост цены.
+ * заправки в строке — км с прошлой, рост цены и полоска бака (Р-25).
  *
  * Без активной машины записи не завести — сначала машина, кнопкой в
  * «Настройки». Запись, чья машина ещё не приехала синхронизацией, в журнале
@@ -133,6 +142,7 @@ export function Journal({ data, mainId }: { data: LogData; mainId: string | null
                 {shown.map((entry) => {
                   const details = entryDetails(entry, currency)
                   const calc = fuelNoteText(notes.get(entry.id))
+                  const tank = tankGauge(entry)
                   return (
                     <li key={entry.id}>
                       <button type="button" className="entry" onClick={() => open({ draft: draftOf(entry), base: entry })}>
@@ -147,6 +157,15 @@ export function Journal({ data, mainId }: { data: LogData; mainId: string | null
                           {details && ` · ${details}`}
                         </span>
                         {calc && <span className="muted">{calc}</span>}
+                        {tank && (
+                          <span className="tank">
+                            <span className="tank__bar" aria-hidden="true">
+                              <span className="tank__was" style={{ width: `${tank.was}%` }} />
+                              <span className="tank__added" style={{ width: `${tank.added}%` }} />
+                            </span>
+                            <span className="muted">{tank.text}</span>
+                          </span>
+                        )}
                       </button>
                     </li>
                   )

@@ -9,6 +9,8 @@ import {
   KIND_FIELDS,
   KIND_LABELS,
   KINDS,
+  TANK_FULL,
+  TANK_MARKS,
   withCar,
   withKind,
   withPaid,
@@ -16,7 +18,7 @@ import {
   type KindField,
 } from '../modules/log/entries.ts'
 import { FUEL_HINTS, MISMATCH, type FuelField } from '../modules/log/fuel.ts'
-import { formatMoney, formatNumber } from '../modules/log/numbers.ts'
+import { formatMoney, formatNumber, parseNumber } from '../modules/log/numbers.ts'
 import { nowIso, today } from '../shared/core/dates.ts'
 import { ulid } from '../shared/core/id.ts'
 
@@ -34,6 +36,9 @@ const COMPUTED: Record<FuelField, string> = {
   amount: 'Сумма посчитается',
 }
 
+/** Поля бака стоят отдельно — после строки «посчитается». */
+const isTank = (field: KindField) => field === 'tankBefore' || field === 'tankAfter'
+
 /** Числовые — с дробной клавиатурой; запятая принимается. */
 const NUMBER_FIELDS: readonly KindField[] = ['liters', 'price', 'amount', 'odometer', 'consumption']
 
@@ -41,7 +46,8 @@ const NUMBER_FIELDS: readonly KindField[] = ['liters', 'price', 'amount', 'odome
  * Форма записи журнала — новой и правки, одна и та же. Поля — по виду
  * (`KIND_FIELDS`); дата и примечание — у всех. У заправки под числами
  * видно, какое посчитается и каким, а три несходящихся числа дают
- * предупреждение — сохраняется всё равно, как введено (Р-06).
+ * предупреждение — сохраняется всё равно, как введено (Р-06). Бак до и
+ * после — процентами, по желанию (Р-25).
  *
  * Чего не хватает, видно после первого «Сохранить»: кричать «нет суммы»
  * на пустой форме, которую только открыли, незачем.
@@ -129,6 +135,38 @@ export function EntryForm({
       )
     }
 
+    // Бак — процентом в поле или кнопкой «¼ ½ ¾ полный» (Р-25).
+    if (field === 'tankBefore' || field === 'tankAfter') {
+      const percent = parseNumber(draft[field])
+      return (
+        <div key={field} className="field">
+          <span>{label}, %</span>
+          <div className="row row--wrap" role="group" aria-label={`${label} — быстро`}>
+            {TANK_MARKS.map((mark) => (
+              <button
+                key={mark.label}
+                type="button"
+                className={percent === mark.percent ? 'btn btn--primary' : 'btn'}
+                aria-pressed={percent === mark.percent}
+                onClick={() => setDraft({ ...draft, [field]: String(mark.percent) })}
+              >
+                {mark.label}
+              </button>
+            ))}
+          </div>
+          <input
+            name={field}
+            value={draft[field]}
+            inputMode="decimal"
+            autoComplete="off"
+            aria-label={`${label}, %`}
+            placeholder={`от 0 до ${TANK_FULL}`}
+            onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
+          />
+        </div>
+      )
+    }
+
     if (field === 'paid') {
       return (
         <label key={field} className="check">
@@ -185,6 +223,7 @@ export function EntryForm({
   }
 
   const computed = check.computed
+  const fields = KIND_FIELDS[draft.kind]
 
   return (
     <form
@@ -232,7 +271,7 @@ export function EntryForm({
         <input type="date" name="date" value={draft.date} onChange={text('date')} />
       </label>
 
-      {KIND_FIELDS[draft.kind].map(input)}
+      {fields.filter((field) => !isTank(field)).map(input)}
 
       {draft.kind === 'fuel' && computed && (
         <p className="muted computed">
@@ -247,6 +286,9 @@ export function EntryForm({
           на {formatNumber(MISMATCH * 100)}&nbsp;%. Сохранится, как введено; чтобы сумма посчиталась сама, очистите её.
         </p>
       )}
+
+      {/* Бак — после чисел и строки «посчитается»: она про литры, цену и сумму. */}
+      {fields.filter(isTank).map(input)}
 
       <label className="field">
         <span>Примечание</span>

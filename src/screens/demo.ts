@@ -4,9 +4,10 @@
  * демо всегда свежее.
  *
  * Машины — каждодневная с бортовым компьютером (у её заправок введён
- * расход) и редкая без него. В журнале — заправки на трёх АЗС с разными
- * ценами, мойки, два ремонта, два штрафа (оплачен и нет) и одна мойка без
- * пробега: она выпадает из основания цены километра — «по N записям из M».
+ * расход, у части — бак до и после) и редкая без него. В журнале —
+ * заправки на трёх АЗС с разными ценами, мойки, два ремонта, два штрафа
+ * (оплачен и нет) и одна мойка без пробега: она выпадает из основания цены
+ * километра — «по N записям из M».
  *
  * Всё задано днями до входа (`ago`), а не датами: от дня зависит только
  * календарь, а пробег, цены и порядок записей одинаковы в любой день. Цена
@@ -102,6 +103,18 @@ const DAILY_EVERY = 13
 const DAILY_STATIONS: readonly StationKey[] = ['main', 'main', 'dear', 'main', 'cheap', 'main', 'main']
 const DAILY_LITERS: readonly number[] = [41.2, 43.5, 39.8, 44.1, 40.6, 42.3, 38.9]
 const DAILY_CONSUMPTION: readonly number[] = [7.8, 8.1, 7.5, 8.4, 7.6, 7.9, 8.6, 7.3]
+
+/**
+ * Доля бака каждодневной до и после — по кругу; `null` — не отметил, в
+ * строке журнала про бак ничего. После всегда не меньше, чем до (Р-25).
+ */
+const DAILY_TANK: readonly ({ before: number; after: number } | null)[] = [
+  { before: 0.2, after: 1 },
+  null,
+  { before: 0.15, after: 0.95 },
+  { before: 0.25, after: 1 },
+  null,
+]
 
 /** Редкая: когда заправлялась, где и сколько. Расхода нет — компьютера нет. */
 const RARE_FILLS: readonly { ago: number; station: StationKey; liters: number }[] = [
@@ -281,7 +294,14 @@ export function demoData(day: DateStr): DemoData {
   type Plan = { car: CarKey; ago: number; build: (base: Entry) => Entry }
   const plans: Plan[] = []
 
-  const fill = (car: CarKey, ago: number, station: StationKey, liters: number, consumption?: number) => {
+  const fill = (
+    car: CarKey,
+    ago: number,
+    station: StationKey,
+    liters: number,
+    consumption?: number,
+    tank?: { before: number; after: number } | null,
+  ) => {
     const price = priceAt(ago, station)
     plans.push({
       car,
@@ -295,13 +315,15 @@ export function demoData(day: DateStr): DemoData {
         liters,
         price,
         ...(consumption === undefined ? {} : { consumption }),
+        ...(tank ? { tankBefore: tank.before, tankAfter: tank.after } : {}),
       }),
     })
   }
 
   for (let ago = Math.floor(DEMO_DAYS / DAILY_EVERY) * DAILY_EVERY, k = 0; ago >= 0; ago -= DAILY_EVERY, k++) {
     const at = (list: readonly number[]) => list[k % list.length] ?? 0
-    fill('daily', ago, DAILY_STATIONS[k % DAILY_STATIONS.length] ?? 'main', at(DAILY_LITERS), at(DAILY_CONSUMPTION))
+    const tank = DAILY_TANK[k % DAILY_TANK.length] ?? null
+    fill('daily', ago, DAILY_STATIONS[k % DAILY_STATIONS.length] ?? 'main', at(DAILY_LITERS), at(DAILY_CONSUMPTION), tank)
   }
   for (const each of RARE_FILLS) fill('rare', each.ago, each.station, each.liters)
 

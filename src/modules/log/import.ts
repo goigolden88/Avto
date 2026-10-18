@@ -67,9 +67,9 @@ export const TANK_PERCENT_MAX = 100
 type TankField = 'tankBefore' | 'tankAfter'
 
 /** Поля раздела импорта: имена — как у `Entry`. */
-type ImportField = 'date' | KindField | TankField | 'note'
+type ImportField = 'date' | KindField | 'note'
 
-/** Поля бака — у заправки, хотя в форме их пока нет. */
+/** Поля бака по виду — у заправки; в форме они тоже есть (`KIND_FIELDS`). */
 const TANK_FIELDS: Record<EntryKind, readonly TankField[]> = {
   fuel: ['tankBefore', 'tankAfter'],
   wash: [],
@@ -78,9 +78,9 @@ const TANK_FIELDS: Record<EntryKind, readonly TankField[]> = {
   other: [],
 }
 
-/** Поля раздела — те же, что у вида в форме, плюс дата, бак и примечание. */
+/** Поля раздела — те же, что у вида в форме, плюс дата и примечание. */
 export function sectionFields(kind: EntryKind): ImportField[] {
-  return ['date', ...KIND_FIELDS[kind], ...TANK_FIELDS[kind], 'note']
+  return ['date', ...KIND_FIELDS[kind], 'note']
 }
 
 /** Сколько чего добавится — склонением для сводки. */
