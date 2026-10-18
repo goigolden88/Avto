@@ -34,7 +34,7 @@ describe('замер', () => {
   })
 
   it('поездка из замера — с отметкой «замер»; без машины поля нет', () => {
-    expect(tripFromTimer(timer, 38, 'C1', 'T1', 'now')).toEqual({
+    expect(tripFromTimer(timer, 38, 'timer', 'C1', 'T1', 'now')).toEqual({
       id: 'T1',
       updatedAt: 'now',
       routeId: 'R1',
@@ -44,6 +44,19 @@ describe('замер', () => {
       source: 'timer',
       carId: 'C1',
     })
-    expect('carId' in tripFromTimer(timer, 38, null, 'T1', 'now')).toBe(false)
+    expect('carId' in tripFromTimer(timer, 38, 'timer', null, 'T1', 'now')).toBe(false)
+  })
+
+  it('минуты вписаны по памяти — отметка «вручную», выезд и машина — те же', () => {
+    expect(tripFromTimer(timer, 45, 'manual', 'C1', 'T2', 'now')).toEqual({
+      id: 'T2',
+      updatedAt: 'now',
+      routeId: 'R1',
+      date: '2026-10-17',
+      start: '08:05',
+      minutes: 45,
+      source: 'manual',
+      carId: 'C1',
+    })
   })
 })

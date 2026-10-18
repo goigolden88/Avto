@@ -691,6 +691,7 @@ async function scenario() {
   check('«Что нового» — строка об импорте', has(news, 'Импорт из Excel — «Настройки» → «Импорт записей»'), line(news, 'Импорт'))
   check('«Что нового» — строка о маршрутах', has(news, 'Маршруты — новая вкладка внизу'), line(news, 'Маршруты —'))
   check('«Что нового» — строка о парковках', has(news, 'Парковки — ссылкой «Парковки» на вкладке «Маршруты»'), line(news, 'Парковки —'))
+  check('«Что нового» — строка о «Вписать минуты» в замере', has(news, 'поездка запишется с отметкой «вручную», а не «замер»'), line(news, 'Вписать минуты'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -774,7 +775,8 @@ async function scenario() {
  * пустой, точки с подставленным городом, маршруты с запретом одной точки,
  * пары, замер через перезагрузку и строку на «Главной», поездка вручную
  * с проверкой минут, сравнение пары, правка и удаление поездки, точки и
- * маршрута, замер дольше 12 часов и замер удалённого маршрута. Машина к
+ * маршрута, замер дольше 12 часов с вписанными минутами («вручную», Р-26)
+ * и замер удалённого маршрута. Машина к
  * этому моменту одна — «Солярис 2».
  */
 async function routesScenario() {
@@ -831,6 +833,29 @@ async function routesScenario() {
       open.onsuccess = () => {
         const all = open.result.transaction('trips').objectStore('trips').getAll()
         all.onsuccess = () => { open.result.close(); done(all.result.filter((trip) => !trip.deleted).length) }
+      }
+    })`)
+  /** Последняя живая поездка в базе — мимо экрана. */
+  const lastTrip = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const all = open.result.transaction('trips').objectStore('trips').getAll()
+        all.onsuccess = () => { open.result.close(); done(all.result.filter((trip) => !trip.deleted).sort((a, b) => a.id.localeCompare(b.id)).at(-1) ?? null) }
+      }
+    })`)
+  /** «Поехал» идущего замера — «ГГГГ-ММ-ДД ЧЧ:ММ» по местному времени, из настроек устройства. */
+  const timerStarted = () =>
+    run(`new Promise((done) => {
+      const open = indexedDB.open('avto')
+      open.onsuccess = () => {
+        const get = open.result.transaction('settings').objectStore('settings').get('tripTimer')
+        get.onsuccess = () => {
+          open.result.close()
+          const at = new Date(get.result.value.startedAt)
+          const p = (n) => String(n).padStart(2, '0')
+          done(at.getFullYear() + '-' + p(at.getMonth() + 1) + '-' + p(at.getDate()) + ' ' + p(at.getHours()) + ':' + p(at.getMinutes()))
+        }
       }
     })`)
   const MINUTE = 60_000
@@ -1006,15 +1031,45 @@ async function routesScenario() {
   await sleep(200)
   await tap('Сохранить', 400)
   check('вписанные минуты — текстом: понятная фраза, не сохранено', has(await card(), 'Минуты — целое число больше нуля') && (await liveTrips()) === 0, flat(await card()))
-  await tap('Отмена', 300)
+
+  // Вписанные минуты — по памяти (Р-26): отметка «вручную», выезд — с «Поехал», машина — из карточки.
+  const timerCar = await value('timer-car')
+  const started = await timerStarted()
+  await act(`set(field('timer-minutes'), '45')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  const typed = await lastTrip()
+  check(
+    '«Вписать минуты» — поездка «вручную»: 45 мин, выезд с «Поехал», машина из карточки',
+    (await run(`document.querySelector('.timer') === null`)) === true &&
+      (await liveTrips()) === 1 &&
+      typed?.source === 'manual' &&
+      typed?.minutes === 45 &&
+      `${typed?.date} ${typed?.start}` === started &&
+      Boolean(timerCar) &&
+      typed?.carId === timerCar,
+    `${JSON.stringify(typed)}; выезд ${started}; машина ${timerCar}`,
+  )
+  const typedBlock = await blockText('через центр')
+  check(
+    'в сравнении пары вписанная поездка — среди ручных: «вручную — 1 из 1»',
+    has(typedBlock, '45 мин — медиана 1 поездки') && has(typedBlock, 'вручную — 1 из 1'),
+    flat(typedBlock),
+  )
+  await unfold('Поездки')
+  const typedRow = await run(`document.querySelector('.trip')?.innerText ?? ''`)
+  check('в списке поездок — отметка «вручную», а не «замер»', has(typedRow, 'вручную') && !has(typedRow, 'замер'), flat(typedRow))
+
+  // «Выбросить» — ничего не пишется.
+  await tapIn('через центр', 'Поехал')
   await tap('Выбросить', 600)
-  check('«Выбросить» — карточки нет, поездки нет', (await run(`document.querySelector('.timer') === null`)) === true && (await liveTrips()) === 0)
+  check('«Выбросить» — карточки нет, новой поездки нет', (await run(`document.querySelector('.timer') === null`)) === true && (await liveTrips()) === 1)
 
   // ─ Маршрут замера удалён — карточка говорит об этом, остаётся «Выбросить».
   await tapIn('через центр', 'Поехал')
   await tapIn('через центр', 'Править')
   await tap('Удалить', 300)
-  await tap('Удалить', 800)
+  await tap('Удалить с поездками', 800)
   check(
     'маршрут замера удалён: «Маршрут удалён», только «Выбросить»',
     has(await card(), 'Маршрут удалён') && (await cardButtons()) === 'Выбросить' && has(await screen(), 'У этой пары точек маршрутов нет'),
