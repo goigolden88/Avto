@@ -271,8 +271,9 @@ const STATION_AGO = 33
 
 /**
  * План демо: заведён за `made` дней до входа; срок — дни от входа: `from`
- * без `until` — дата, с `until` — «с… по…», без `from` — без срока.
- * `odometer` — ориентир по пробегу: ближайшие круглые десять тысяч.
+ * без `until` — дата, с `until` — «с… по…», с `every` — регулярный (Р-29),
+ * без `from` — без срока. `odometer` — ориентир по пробегу: ближайшие
+ * круглые десять тысяч.
  */
 type PlanDemo = {
   car: CarKey
@@ -280,6 +281,7 @@ type PlanDemo = {
   what: string
   from?: number
   until?: number
+  every?: number
   odometer?: boolean
   note?: string
 }
@@ -289,6 +291,8 @@ const PLANS: readonly PlanDemo[] = [
   { car: 'daily', made: 30, what: 'заменить задние колодки', from: -5, note: 'скрипят при торможении' },
   // «С… по…» идёт: начался десять дней назад, кончится через двадцать.
   { car: 'rare', made: 20, what: 'ТО: масло и фильтры', from: -10, until: 20 },
+  // Регулярный: страховка раз в год, срок через месяц.
+  { car: 'daily', made: 335, what: 'продлить ОСАГО', from: 30, every: 12, note: 'полис в приложении страховой' },
   // Без срока, с ориентиром по пробегу — совет мастера.
   { car: 'daily', made: 40, what: 'заменить ремень ГРМ', odometer: true, note: 'совет мастера на СТО на Лесной' },
 ]
@@ -507,6 +511,7 @@ export function demoData(day: DateStr): DemoData {
     const plan: Plan = { ...stamp(addDays(day, -each.made)), carId: carIds[each.car], what: each.what }
     if (each.from !== undefined) plan.date = addDays(day, each.from)
     if (each.until !== undefined) plan.until = addDays(day, each.until)
+    if (each.every !== undefined) plan.everyMonths = each.every
     if (each.odometer) plan.odometer = Math.ceil(odometerAt(each.car, 0) / PLAN_ODOMETER_STEP) * PLAN_ODOMETER_STEP
     if (each.note) plan.note = each.note
     return plan

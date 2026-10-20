@@ -7,6 +7,7 @@ import type { EntryDraft } from '../modules/log/entries.ts'
 import {
   buildPlan,
   carLabel,
+  completePlan,
   doneDraft,
   doneText,
   dueCount,
@@ -14,7 +15,6 @@ import {
   EMPTY_HINT,
   lastReading,
   listPlans,
-  markDone,
   newPlanDraft,
   odometerText,
   planCarOptions,
@@ -41,14 +41,16 @@ function describe(error: unknown): string {
 type Mode = { kind: 'plan'; id: string | null; draft: PlanDraft } | { kind: 'done'; plan: Plan; draft: EntryDraft } | null
 
 /**
- * Вкладка «Планы» (Р-28): ремонт и ТО по машине — со сроком, «с… по…» или
- * без срока. Сверху — планы, у которых срок пришёл, с пометкой «пора» или
- * «просрочено»; дальше — со сроком, от ближайшего; внизу — без срока. У
- * ориентира по пробегу — последний пробег машины из журнала.
+ * Вкладка «Планы» (Р-28): ремонт и ТО по машине — со сроком, «с… по…»,
+ * регулярные (Р-29) или без срока. Сверху — планы, у которых срок пришёл, с
+ * пометкой «пора» или «просрочено»; дальше — со сроком, от ближайшего;
+ * внизу — без срока. У ориентира по пробегу — последний пробег машины из
+ * журнала.
  *
  * «Сделано» открывает новую запись «Ремонт» с текстом и заметкой плана;
- * сохранена — план уходит в свёрнутый блок «Сделано» с датой, закрыта без
- * сохранения — план как был. Машина нового плана — как в журнале (Р-21).
+ * сохранена — план уходит в свёрнутый блок «Сделано» с датой, у регулярного
+ * рядом заводится следующий; закрыта без сохранения — план как был. Машина
+ * нового плана — как в журнале (Р-21).
  */
 export function Plans() {
   const log = useLog()
@@ -77,8 +79,8 @@ export function Plans() {
             initial={mode.draft}
             cars={log.data.cars}
             currency={log.data.currency}
-            // План — из базы, а не с экрана: его могли поправить на другом устройстве.
-            onSaved={async (entry) => db.put('plans', markDone((await db.get('plans', plan.id)) ?? plan, entry, nowIso()))}
+            // План — из базы, а не с экрана: его могли поправить или уже сделать на другом устройстве.
+            onSaved={async (entry) => db.putMany('plans', completePlan((await db.get('plans', plan.id)) ?? plan, entry, ulid(), nowIso()))}
             onDone={() => setMode(null)}
           />
         </>
@@ -241,7 +243,7 @@ function Errors({ list }: { list: readonly string[] }) {
 }
 
 /**
- * Форма плана — нового и правки: машина, что сделать, срок одной из трёх
+ * Форма плана — нового и правки: машина, что сделать, срок одной из четырёх
  * кнопок, ориентир по пробегу и заметка. Срок с датой без неё — подставлено
  * сегодня. Удаление — после вопроса.
  */
@@ -338,6 +340,18 @@ function PlanForm({
           <label className="field">
             <span>По</span>
             <input type="date" name="plan-until" value={draft.until} onChange={field('until')} />
+          </label>
+        </>
+      )}
+      {draft.term === 'every' && (
+        <>
+          <label className="field">
+            <span>Первый срок</span>
+            <input type="date" name="plan-date" value={draft.date} onChange={field('date')} />
+          </label>
+          <label className="field">
+            <span>Каждые, мес.</span>
+            <input name="plan-every" value={draft.every} inputMode="numeric" autoComplete="off" placeholder="6" onChange={field('every')} />
           </label>
         </>
       )}
