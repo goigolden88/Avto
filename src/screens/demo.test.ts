@@ -6,7 +6,7 @@ import { currentPeriod, type LogFilter } from '../modules/log/filter.ts'
 import { cheapStations, fuelNotes, perKm, periodStats } from '../modules/log/stats.ts'
 import { parkingsByCity, visitsOf } from '../modules/parking/parkings.ts'
 import { parkingStats, percent } from '../modules/parking/stats.ts'
-import { dueCount, lastReading, listPlans, planState } from '../modules/plans/plans.ts'
+import { dueCount, lastReading, listPlans, planState, termOf } from '../modules/plans/plans.ts'
 import { readCurrency } from '../modules/prefs/prefs.ts'
 import { rankRoutes } from '../modules/routes/compare.ts'
 import { pairsOf } from '../modules/routes/routes.ts'
@@ -297,10 +297,11 @@ describe.each(DAYS)('демо от %s', (day) => {
     const list = listPlans(data.plans, day)
     const states = list.open.map((plan) => planState(plan, day))
 
-    it('просроченный, «с… по…», который идёт, без срока с ориентиром по пробегу — и один сделанный', () => {
-      expect(states).toEqual(['overdue', 'due', 'none'])
-      const [, range, open] = list.open
+    it('просроченный, «с… по…», который идёт, регулярный, без срока с ориентиром по пробегу — и один сделанный', () => {
+      expect(states).toEqual(['overdue', 'due', 'later', 'none'])
+      const [, range, regular, open] = list.open
       expect(range?.until).toBeDefined()
+      expect(regular && termOf(regular)).toBe('every')
       expect(open?.odometer ?? 0).toBeGreaterThan(lastReading(open?.carId ?? '', entries)?.odometer ?? Infinity)
       expect(list.done).toHaveLength(1)
     })

@@ -3,66 +3,93 @@
  * порядок списка, ориентир по пробегу рядом с последним пробегом журнала
  * и «Сделано» — запись «Ремонт» из плана.
  *
- * Срок — дата, «с… по…» или без срока. Пришёл, когда дата (у «с… по…» —
- * «с») не позже сегодня: в сам день — «пора», после даты (у «с… по…» —
- * после «по») — «просрочено». Ориентир по пробегу справочный: на срок не
- * влияет (Р-11). Напоминаний нет — о сроке говорят «Планы» и строка на
- * «Главной», когда приложение открыто.
+ * Срок — дата, «с… по…», регулярный или без срока. Пришёл, когда дата (у
+ * «с… по…» — «с») не позже сегодня: в сам день — «пора», после даты (у
+ * «с… по…» — после «по») — «просрочено». Регулярный (Р-29) — срок датой с
+ * повтором каждые N месяцев: «Сделано» заводит следующий план от дня записи
+ * «Ремонт». Ориентир по пробегу справочный: на срок не влияет (Р-11).
+ * Напоминаний нет — о сроке говорят «Планы» и строка на «Главной», когда
+ * приложение открыто.
  *
  * Чистые функции, без React и без базы.
  */
 
 import type { Car, Entry, Plan } from '../../app/model.ts'
-import { formatDateLoose, isDateStr, type DateStr } from '../../shared/core/dates.ts'
+import { addMonths, formatDateLoose, isDateStr, lastDayOf, monthOf, type DateStr } from '../../shared/core/dates.ts'
 import { activeCars, MISSING_CAR } from '../log/cars.ts'
 import { newDraft, withKind, type EntryDraft } from '../log/entries.ts'
 import { formatNumber, numberInput, parseNumber } from '../log/numbers.ts'
 
 // ─── Форма ─────────────────────────────────────────────────────────────────
 
-/** Вид срока в форме: дата, «с… по…» или без срока. */
-export type Term = 'date' | 'range' | 'none'
+/** Вид срока в форме: дата, «с… по…», регулярный (Р-29) или без срока. */
+export type Term = 'date' | 'range' | 'every' | 'none'
 
 /** Порядок и подписи кнопок срока. */
-export const TERMS: readonly Term[] = ['date', 'range', 'none']
+export const TERMS: readonly Term[] = ['date', 'range', 'every', 'none']
 
 export const TERM_LABELS: Record<Term, string> = {
   date: 'К дате',
   range: 'С… по…',
+  every: 'Регулярно',
   none: 'Без срока',
 }
+
+/** Повтор регулярного плана, месяцев: целое от и до (Р-29). */
+export const EVERY_MIN = 1
+export const EVERY_MAX = 120
 
 /** Поля формы плана — строками, как в полях ввода. */
 export type PlanDraft = {
   carId: string
   what: string
   term: Term
-  /** срок или «с» */
+  /** срок, «с» или первый срок регулярного */
   date: string
   /** «по» */
   until: string
+  /** «каждые, мес.» регулярного */
+  every: string
   odometer: string
   note: string
 }
 
 /** Новый план: машина подставлена (Р-21), без срока — обязательно только «что сделать». */
 export function newPlanDraft(carId: string): PlanDraft {
-  return { carId, what: '', term: 'none', date: '', until: '', odometer: '', note: '' }
+  return { carId, what: '', term: 'none', date: '', until: '', every: '', odometer: '', note: '' }
+}
+
+/** Годится ли число повтором: целое от `EVERY_MIN` до `EVERY_MAX`. */
+function isEvery(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= EVERY_MIN && value <= EVERY_MAX
+}
+
+/**
+ * Повтор плана, месяцев, — только у срока одной датой. Испорченный (приехал
+ * синхронизацией: дробь, ноль, минус) или рядом с «по» — повтора нет: план
+ * работает как срок датой и следующего не заводит.
+ */
+export function everyOf(plan: Plan): number | undefined {
+  if (plan.date === undefined || plan.until !== undefined) return undefined
+  return isEvery(plan.everyMonths) ? plan.everyMonths : undefined
 }
 
 /** Вид срока записанного плана: «по» без «с» не бывает — такой план без срока. */
 export function termOf(plan: Plan): Term {
   if (plan.date === undefined) return 'none'
-  return plan.until === undefined ? 'date' : 'range'
+  if (plan.until !== undefined) return 'range'
+  return everyOf(plan) === undefined ? 'date' : 'every'
 }
 
 export function planDraftOf(plan: Plan): PlanDraft {
+  const every = everyOf(plan)
   return {
     carId: plan.carId,
     what: plan.what,
     term: termOf(plan),
     date: plan.date ?? '',
     until: plan.until ?? '',
+    every: every === undefined ? '' : String(every),
     odometer: numberInput(plan.odometer),
     note: plan.note ?? '',
   }
@@ -72,13 +99,18 @@ export const WHAT_MISSING = 'Впишите, что сделать'
 
 export const UNTIL_BEFORE = '«По» раньше, чем «с»: конец срока не может быть до его начала'
 
+export const EVERY_MISSING = 'Укажите, каждые сколько месяцев повторять'
+
+export const EVERY_WRONG = `Повтор — целое число месяцев от ${EVERY_MIN} до ${EVERY_MAX}`
+
 export type PlanResult = { ok: true; plan: Plan } | { ok: false; errors: string[] }
 
 /**
  * План из формы. Что сделать и машина обязательны; срок — по виду: у даты —
- * дата, у «с… по…» — оба дня, «по» не раньше «с». Ориентир по пробегу —
- * число, по желанию. У правки «сделано» и запись ремонта остаются:
- * форма их не показывает.
+ * дата, у «с… по…» — оба дня, «по» не раньше «с», у регулярного — первый
+ * срок и повтор, целое число месяцев. Ориентир по пробегу — число, по
+ * желанию. Повтор есть только у регулярного: другой вид срока его снимает.
+ * У правки «сделано» и запись ремонта остаются: форма их не показывает.
  */
 export function buildPlan(draft: PlanDraft, base: Plan | undefined, id: string, at: string): PlanResult {
   const errors: string[] = []
@@ -92,6 +124,13 @@ export function buildPlan(draft: PlanDraft, base: Plan | undefined, id: string, 
     if (!isDateStr(draft.until)) errors.push('Укажите, по какой день')
     if (isDateStr(draft.date) && isDateStr(draft.until) && draft.until < draft.date) errors.push(UNTIL_BEFORE)
   }
+  // Минус, дробь и текст — «не то число»: повтор — целые месяцы.
+  const every = parseNumber(draft.every)
+  if (draft.term === 'every') {
+    if (!isDateStr(draft.date)) errors.push('Укажите дату первого срока')
+    if (every === undefined) errors.push(EVERY_MISSING)
+    else if (!isEvery(every)) errors.push(EVERY_WRONG)
+  }
 
   // Знака минус разбор числа не принимает: «-5» — тоже «не число».
   const odometer = parseNumber(draft.odometer)
@@ -99,10 +138,18 @@ export function buildPlan(draft: PlanDraft, base: Plan | undefined, id: string, 
 
   if (errors.length > 0) return { ok: false, errors }
 
-  const { date: _date, until: _until, odometer: _odometer, note: _note, ...rest } = base ?? { id, updatedAt: at }
+  const {
+    date: _date,
+    until: _until,
+    everyMonths: _everyMonths,
+    odometer: _odometer,
+    note: _note,
+    ...rest
+  } = base ?? { id, updatedAt: at }
   const plan: Plan = { ...rest, id: base?.id ?? id, updatedAt: at, carId: draft.carId, what }
   if (draft.term !== 'none') plan.date = draft.date
   if (draft.term === 'range') plan.until = draft.until
+  if (draft.term === 'every' && isEvery(every)) plan.everyMonths = every
   if (odometer !== undefined) plan.odometer = odometer
   const note = draft.note.trim()
   if (note) plan.note = note
@@ -181,11 +228,16 @@ export function listPlans(plans: readonly Plan[], day: DateStr): PlanList {
   }
 }
 
-/** Срок словами: «срок 12.10.2026», «с 01.10.2026 по 31.10.2026», «без срока». */
+/**
+ * Срок словами: «срок 12.10.2026», «срок 20.04.2027 · каждые 6 мес.»,
+ * «с 01.10.2026 по 31.10.2026», «без срока».
+ */
 export function termText(plan: Plan): string {
   if (plan.date === undefined) return 'без срока'
-  if (plan.until === undefined) return `срок ${formatDateLoose(plan.date)}`
-  return `с ${formatDateLoose(plan.date)} по ${formatDateLoose(plan.until)}`
+  if (plan.until !== undefined) return `с ${formatDateLoose(plan.date)} по ${formatDateLoose(plan.until)}`
+  const every = everyOf(plan)
+  const term = `срок ${formatDateLoose(plan.date)}`
+  return every === undefined ? term : `${term} · каждые ${every} мес.`
 }
 
 /** «сделано 12.10.2026» — в блоке «Сделано». */
@@ -267,8 +319,46 @@ export function markDone(plan: Plan, entry: Entry, at: string): Plan {
   return { ...plan, updatedAt: at, doneDate: entry.date, entryId: entry.id }
 }
 
+/**
+ * День через `months` месяцев: то же число, а нет его в том месяце —
+ * последний день месяца. 31.08.2026 + 6 → 28.02.2027.
+ */
+export function addMonthsToDay(day: DateStr, months: number): DateStr {
+  const month = addMonths(monthOf(day), months)
+  const last = lastDayOf(month)
+  return Number(day.slice(8, 10)) > Number(last.slice(8, 10)) ? last : `${month}-${day.slice(8, 10)}`
+}
+
+/**
+ * Следующий регулярный план после «Сделано» записью `entry` (Р-29): та же
+ * машина, «что сделать», заметка и повтор; срок — дата записи плюс повтор,
+ * отсчёт от дня работы, а не от прежнего срока. Ориентир по пробегу не
+ * переносится — в новом плане он устарел бы. Повтора нет — null.
+ */
+export function nextPlan(plan: Plan, entry: Entry, id: string, at: string): Plan | null {
+  const every = everyOf(plan)
+  if (every === undefined || !isDateStr(entry.date)) return null
+  const next: Plan = { id, updatedAt: at, carId: plan.carId, what: plan.what, date: addMonthsToDay(entry.date, every), everyMonths: every }
+  if (plan.note !== undefined) next.note = plan.note
+  return next
+}
+
+/**
+ * Что записать после «Сделано»: план — сделанным, у регулярного — и
+ * следующий. `current` — план, каким он лежит в базе к моменту сохранения
+ * записи: уже сделанный (приехал с другого устройства) или удалённый
+ * второго следующего не заводит.
+ */
+export function completePlan(current: Plan, entry: Entry, nextId: string, at: string): Plan[] {
+  const done = markDone(current, entry, at)
+  if (current.doneDate !== undefined || current.deleted) return [done]
+  const next = nextPlan(current, entry, nextId, at)
+  return next ? [done, next] : [done]
+}
+
 /** Подсказка пустых «Планов»: что сюда писать. */
 export const EMPTY_HINT =
   'Сюда — что по машине предстоит: ремонт, ТО, совет мастера, «сделать в ближайшее время». ' +
-  'Срок — дата, «с… по…» или без срока; когда он придёт, «Главная» скажет об этом строкой. ' +
-  'Сделали — «Сделано», и план станет записью «Ремонт» в журнале.'
+  `Срок — дата, «с… по…», «${TERM_LABELS.every}» — каждые сколько-то месяцев (от ${EVERY_MIN} до ${EVERY_MAX}) — или без срока; ` +
+  'когда он придёт, «Главная» скажет об этом строкой. ' +
+  'Сделали — «Сделано», и план станет записью «Ремонт» в журнале; у регулярного рядом сам появится следующий.'
