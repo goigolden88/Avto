@@ -4,6 +4,7 @@ import { config } from './app/config.ts'
 import { db, sync } from './app/core.ts'
 import { CoreProvider } from './shared/ui/core.tsx'
 import { Layout, type Tab } from './shared/ui/Layout.tsx'
+import { Help } from './screens/Help.tsx'
 import { Home } from './screens/Home.tsx'
 import { Parkings } from './screens/Parkings.tsx'
 import { Plans } from './screens/Plans.tsx'
@@ -47,6 +48,8 @@ export function App() {
             <Route path="plans" element={<Plans />} />
             {/* «Настройки» — не вкладка: шестерёнка в шапке главного экрана. */}
             <Route path="settings" element={<Settings />} />
+            {/* Справка — «?» рядом с шестерёнкой, тоже не вкладка (Р-30). */}
+            <Route path="help" element={<Help />} />
             {/* Незнакомый адрес — на главный: приложение открывается,
                 а не показывает пустоту. */}
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -15,7 +15,7 @@ import { TimerLine } from './RoutesTab.tsx'
 import { useLog, useMainCar } from './useLog.ts'
 
 /**
- * Главный экран: шапка с шестерёнкой, строка об идущем замере поездки,
+ * Главный экран: шапка со справкой и шестерёнкой, строка об идущем замере поездки,
  * строка о планах, срок которых пришёл (Р-28), «Что нового» после
  * обновления и журнал (Р-03). Без машины журнал зовёт
  * её завести.
@@ -39,6 +39,9 @@ export function Home() {
         <div className="screen-head__row">
           <h1>{config.name}</h1>
           <div className="screen-head__tools">
+            <Link className="gear" to="/help" aria-label="Справка">
+              <span aria-hidden="true">?</span>
+            </Link>
             <Link className="gear" to="/settings" aria-label="Настройки">
               <span aria-hidden="true">⚙</span>
               {/* Синхронизация живёт в фоне: точка зовёт в «Настройки». */}

@@ -397,3 +397,14 @@
   white-space: nowrap;
   padding-left: 12px;
 }
+
+/* Справка (Р-30): длинное название раздела переносится, а не уезжает за
+   край узкого экрана; длинное слово в тексте — тоже. */
+.help .fold__btn {
+  text-align: left;
+}
+
+.help p {
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}

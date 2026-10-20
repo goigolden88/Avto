@@ -17,7 +17,7 @@ import {
   type EntryDraft,
   type KindField,
 } from '../modules/log/entries.ts'
-import { FUEL_HINTS, MISMATCH, type FuelField } from '../modules/log/fuel.ts'
+import { FUEL_HINTS, MISMATCH_PERCENT, type FuelField } from '../modules/log/fuel.ts'
 import { formatMoney, formatNumber, parseNumber } from '../modules/log/numbers.ts'
 import { nowIso, today } from '../shared/core/dates.ts'
 import { ulid } from '../shared/core/id.ts'
@@ -290,7 +290,7 @@ export function EntryForm({
       {draft.kind === 'fuel' && check.expectedAmount !== null && (
         <p className="warning">
           Литры × цена = {formatMoney(check.expectedAmount, currency)}, а сумма введена другая — расходится больше чем
-          на {formatNumber(MISMATCH * 100)}&nbsp;%. Сохранится, как введено; чтобы сумма посчиталась сама, очистите её.
+          на {formatNumber(MISMATCH_PERCENT)}&nbsp;%. Сохранится, как введено; чтобы сумма посчиталась сама, очистите её.
         </p>
       )}
 
