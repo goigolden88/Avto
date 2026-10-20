@@ -627,6 +627,46 @@ async function scenario() {
   await go('/nowhere')
   check('незнакомый адрес открывает главный, а не пустоту', (await run('location.hash')) === '#/', await run('location.hash'))
 
+  // ─ Справка: «?» рядом с шестерёнкой, разделы свёрнуты, открываются
+  // нажатием, адрес переживает перезагрузку, «Назад» — на главный (Р-30).
+  await act(`document.querySelector('.screen-head__tools [aria-label="Справка"]')?.click()`)
+  await sleep(700)
+  const help = await screen()
+  check('справка открывается «?» в шапке «Главной»', (await run('location.hash')) === '#/help' && has(help, 'Справка'), await run('location.hash'))
+  const helpFolds = await run(
+    `[...document.querySelectorAll('.help .fold__btn')].map((el) => el.textContent.trim() + ':' + el.getAttribute('aria-expanded')).join(', ')`,
+  )
+  const helpTitles = ['Главная', 'Журнал', 'Запись', 'Маршруты', 'Парковки', 'Планы', 'Настройки', 'Машины', 'Данные и синхронизация', 'Если что-то не так']
+  check(
+    'в справке разделы по экранам, «Данные и синхронизация» и «Если что-то не так» — все свёрнуты',
+    helpFolds === helpTitles.map((title) => `${title}:false`).join(', '),
+    helpFolds,
+  )
+  await unfold('Данные и синхронизация')
+  const helpData = await screen()
+  check(
+    'раздел открывается нажатием: токен общий для приложений семьи, «Забыть» — во всех',
+    has(helpData, 'общий для всех приложений семьи') && has(helpData, 'останавливает синхронизацию во всех приложениях семьи'),
+    line(helpData, 'Токен вписывается'),
+  )
+  const wide = await run(`document.documentElement.scrollWidth <= document.documentElement.clientWidth`)
+  check('справка не шире экрана', wide === true)
+  await unfold('Маршруты')
+  check('в разделе «Маршруты» порог замера — из константы, числом', /дольше \d+ час/.test(await screen()), line(await screen(), 'дольше'))
+  await act(`[...document.querySelectorAll('.help .fold__btn')].forEach((el) => el.getAttribute('aria-expanded') === 'true' && el.click())`)
+  await sleep(300)
+  check(
+    'раздел закрывается нажатием',
+    (await run(`[...document.querySelectorAll('.help .fold__btn')].every((el) => el.getAttribute('aria-expanded') === 'false')`)) === true,
+  )
+  await reload('document.querySelector(".help") !== null', 'справка после перезагрузки')
+  check('после перезагрузки открыта справка', (await run('location.hash')) === '#/help' && has(await screen(), 'Если что-то не так'), await run('location.hash'))
+  await run('history.back()')
+  await waitFor(HOME_READY, 'главный экран после «Назад» из справки')
+  check('«Назад» из справки — на главный', (await run('location.hash')) === '#/', await run('location.hash'))
+  const helpTabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
+  check('в нижней панели справки нет', helpTabs === 'Главная, Маршруты, Планы', helpTabs)
+
   // ─ Настройки: шестерёнкой, разделы свёрнуты.
   await act(`document.querySelector('[aria-label="Настройки"]')?.click()`)
   await sleep(700)
@@ -693,6 +733,7 @@ async function scenario() {
   check('«Что нового» — строка о парковках', has(news, 'Парковки — ссылкой «Парковки» на вкладке «Маршруты»'), line(news, 'Парковки —'))
   check('«Что нового» — строка о «Вписать минуты» в замере', has(news, 'поездка запишется с отметкой «вручную», а не «замер»'), line(news, 'Вписать минуты'))
   check('«Что нового» — строка о «Планах»', has(news, 'Планы — третья вкладка внизу'), line(news, 'Планы —'))
+  check('«Что нового» — строка о справке', has(news, 'Справка — «?» в шапке «Главной»'), line(news, 'Справка —'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -2077,6 +2118,17 @@ async function demoScenario() {
 
   const home = await plain()
   check('в демо сверху полоса «Демо»', has(home, 'Демо: данные выдуманные'), flat(home))
+  await act(`document.querySelector('[aria-label="Справка"]')?.click()`)
+  await sleep(700)
+  const demoHelp = await screen()
+  check(
+    'в демо справка открывается «?», полоса «Демо» над ней (Р-30)',
+    (await run('location.hash')) === '#/help' && has(demoHelp, 'Демо: данные выдуманные') && has(demoHelp, 'Если что-то не так'),
+    flat(demoHelp),
+  )
+  await go('/')
+  await waitFor(HOME_READY, 'журнал демо после справки')
+  await sleep(300)
   check('на «Главной» демо — строка «Планы: пора — 2»', has(home, 'Планы: пора — 2'), flat(line(home, 'Планы:')))
   check('демо — в своей базе avto-demo', (await databases()) === 'avto, avto-demo, family', await databases())
   const carNames = await act(`return [...field('filter-car').options].map((option) => option.textContent.trim()).join(', ')`)

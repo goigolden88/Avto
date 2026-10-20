@@ -33,6 +33,9 @@ export const FUEL_FIELD_ACCUSATIVE: Record<FuelField, string> = {
 /** Доля, на которую сумма может разойтись с «литры × цена» без предупреждения. */
 export const MISMATCH = 0.01
 
+/** Та же доля в процентах — для предупреждения в форме и для справки. */
+export const MISMATCH_PERCENT = MISMATCH * 100
+
 /** Подсказки топлива — у машины и у заправки; топливо — свободная строка. */
 export const FUEL_HINTS: readonly string[] = ['95', '92', 'ДТ', 'газ']
 
