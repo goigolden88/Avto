@@ -693,6 +693,7 @@ async function scenario() {
   check('«Что нового» — строка о парковках', has(news, 'Парковки — ссылкой «Парковки» на вкладке «Маршруты»'), line(news, 'Парковки —'))
   check('«Что нового» — строка о «Вписать минуты» в замере', has(news, 'поездка запишется с отметкой «вручную», а не «замер»'), line(news, 'Вписать минуты'))
   check('«Что нового» — строка о «Планах»', has(news, 'Планы — третья вкладка внизу'), line(news, 'Планы —'))
+  check('«Что нового» — строка о регулярных планах', has(news, 'Регулярные планы: у срока плана новая кнопка «Регулярно»'), line(news, 'Регулярные'))
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -1417,7 +1418,11 @@ async function plansScenario() {
   const empty = await screen()
   check(
     'вкладка «Планы»: пусто — подсказка, что сюда писать, и «Добавить план»',
-    (await run('location.hash')) === '#/plans' && has(empty, 'Планов пока нет') && has(empty, 'совет мастера') && has(empty, 'Добавить план'),
+    (await run('location.hash')) === '#/plans' &&
+      has(empty, 'Планов пока нет') &&
+      has(empty, 'совет мастера') &&
+      has(empty, '«Регулярно»') &&
+      has(empty, 'Добавить план'),
     flat(empty),
   )
 
@@ -1555,15 +1560,111 @@ async function plansScenario() {
   await sleep(500)
   check('устройство помнит, свёрнут ли «Сделано»', afterOpen === 'true' && (await expanded()) === 'false', `${afterOpen} → ${await expanded()}`)
 
-  // ─ Запись «Ремонт» в журнале; убираем её — дальше сценарий ждёт одну запись.
-  await go('/')
-  await waitFor(HOME_READY, 'журнал после «Сделано»')
-  check('запись «Ремонт» из плана — в журнале', has(await screen(), 'заменить ремень ГРМ') && has(await screen(), '2 записи'), flat(line(await screen(), 'ремень')))
-  await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes('заменить ремень ГРМ'))?.click()`)
-  await sleep(500)
+  // ─ Регулярный план (#37, Р-29): четыре кнопки срока, повтор проверяется,
+  // «Сделано» задним числом заводит следующий от дня записи.
+  /** День плюс месяцы; нет такого числа — последний день месяца. */
+  const plusMonths = (day, months) => {
+    const [y, m, d] = day.split('-').map(Number)
+    const last = new Date(Date.UTC(y, m - 1 + months + 1, 0)).getUTCDate()
+    return new Date(Date.UTC(y, m - 1 + months, Math.min(d, last))).toISOString().slice(0, 10)
+  }
+  const buttons = (group) =>
+    run(`[...document.querySelectorAll('[aria-label="${group}"] button')].map((el) => el.textContent.trim()).join(', ')`)
+  const before = (await plansInBase()).length
+  await tap('Добавить план')
+  check('у срока четыре кнопки: «К дате», «С… по…», «Регулярно», «Без срока»', (await buttons('Срок')) === 'К дате, С… по…, Регулярно, Без срока', await buttons('Срок'))
+  await act(`set(field('plan-what'), 'заменить масло')`)
+  await sleep(100)
+  await tap('Регулярно', 300)
+  check('«Регулярно» — первый срок подставлен сегодня, «каждые, мес.» пусто', (await value('plan-date')) === today && (await value('plan-every')) === '', `${await value('plan-date')}, ${await value('plan-every')}`)
+  await tap('Сохранить', 400)
+  check(
+    'повтор пуст — понятная фраза, план не сохранён',
+    has(await screen(), 'Укажите, каждые сколько месяцев повторять') && (await plansInBase()).length === before,
+    flat(line(await screen(), 'Укажите')),
+  )
+  await act(`set(field('plan-every'), '6,5')`)
+  await sleep(200)
+  await tap('Сохранить', 400)
+  check(
+    'повтор дробный — понятная фраза, план не сохранён',
+    has(await screen(), 'Повтор — целое число месяцев от 1 до 120') && (await plansInBase()).length === before,
+    flat(line(await screen(), 'Повтор')),
+  )
+  const firstTerm = await dayInPage(-20)
+  await act(`set(field('plan-every'), '6'); set(field('plan-date'), ${JSON.stringify(firstTerm)}); set(field('plan-note'), 'масло 5W-40')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  const oil = await rowText('заменить масло')
+  check(
+    'регулярный план в списке: машина, срок и повтор, «просрочено» — как у срока датой',
+    has(oil, `Солярис 2 · срок ${shown(firstTerm)} · каждые 6 мес.`) && has(oil, 'просрочено'),
+    flat(oil),
+  )
+
+  // «Сделано» — запись задним числом: следующий срок от её даты.
+  await donePlan('заменить масло')
+  const doneDay = await dayInPage(-2)
+  await act(`set(field('date'), ${JSON.stringify(doneDay)}); set(field('amount'), '3000')`)
+  await sleep(200)
+  await tap('Сохранить', 1000)
+  const oils = (await plansInBase()).filter((plan) => plan.what === 'заменить масло')
+  const oilDone = oils.find((plan) => plan.doneDate !== undefined)
+  const oilNext = oils.find((plan) => plan.doneDate === undefined)
+  const nextTerm = plusMonths(doneDay, 6)
+  check(
+    '«Сделано» у регулярного: он сделан датой записи, рядом следующий — машина, заметка, повтор, срок от дня записи',
+    oils.length === 2 &&
+      oilDone?.doneDate === doneDay &&
+      oilNext?.date === nextTerm &&
+      oilNext?.everyMonths === 6 &&
+      oilNext?.note === 'масло 5W-40' &&
+      oilNext?.carId === oilDone?.carId &&
+      oilNext?.odometer === undefined,
+    JSON.stringify(oils),
+  )
+  const oilRow = await rowText('заменить масло')
+  check(
+    'следующий — в списке со сроком и повтором, сделанный — в «Сделано · 2»',
+    has(oilRow, `срок ${shown(nextTerm)} · каждые 6 мес.`) && (await foldSummary('Сделано')) === '· 2',
+    `${flat(oilRow)}; ${await foldSummary('Сделано')}`,
+  )
+
+  // Правка: другой вид срока — повтор пропадает.
+  await openPlan('заменить масло')
+  check('правка регулярного: «Регулярно» и повтор в форме', (await pressed('Срок')) === 'Регулярно' && (await value('plan-every')) === '6', `${await pressed('Срок')}, ${await value('plan-every')}`)
+  await tap('К дате', 200)
+  await tap('Сохранить', 800)
+  const switched = (await plansInBase()).find((plan) => plan.what === 'заменить масло' && plan.doneDate === undefined)
+  check(
+    'срок переключён на «К дате» — повтора нет, дата прежняя',
+    switched?.everyMonths === undefined && switched?.date === nextTerm && !has(await rowText('заменить масло'), 'каждые'),
+    JSON.stringify(switched),
+  )
+  await openPlan('заменить масло')
   await tap('Удалить', 300)
   await tap('Удалить', 800)
-  check('запись «Ремонт» удалена — в журнале снова одна', has(await screen(), '1 запись') && !has(await screen(), 'заменить ремень ГРМ'), flat(line(await screen(), 'запис')))
+  check('план удалён', !(await order()).includes('заменить масло'), await order())
+
+  // ─ Записи «Ремонт» в журнале; убираем их — дальше сценарий ждёт одну запись.
+  await go('/')
+  await waitFor(HOME_READY, 'журнал после «Сделано»')
+  check(
+    'записи «Ремонт» из планов — в журнале',
+    has(await screen(), 'заменить ремень ГРМ') && has(await screen(), 'заменить масло') && has(await screen(), '3 записи'),
+    flat(line(await screen(), 'запис')),
+  )
+  for (const what of ['заменить ремень ГРМ', 'заменить масло']) {
+    await act(`[...document.querySelectorAll('.entry')].find((el) => el.textContent.includes(${JSON.stringify(what)}))?.click()`)
+    await sleep(500)
+    await tap('Удалить', 300)
+    await tap('Удалить', 800)
+  }
+  check(
+    'записи «Ремонт» удалены — в журнале снова одна',
+    has(await screen(), '1 запись') && !has(await screen(), 'заменить ремень ГРМ') && !has(await screen(), 'заменить масло'),
+    flat(line(await screen(), 'запис')),
+  )
 }
 
 /**
@@ -2195,16 +2296,17 @@ async function demoScenario() {
     flat(line(demoPlace, '18 ч')),
   )
 
-  // ─ Планы демо: просроченный, «с… по…», без срока с ориентиром и один сделанный.
+  // ─ Планы демо: просроченный, «с… по…», регулярный, без срока с ориентиром и один сделанный.
   await go('/plans')
   await waitFor(`document.querySelector('.plans .plan') !== null`, 'планы демо')
   const demoPlans = (await screen()).replace(/[  ]/g, ' ')
   const demoStates = await run(`[...document.querySelectorAll('.plan__state')].map((el) => el.textContent.trim()).join(', ')`)
   check(
-    'в демо на «Планах» — просроченный, «пора» «с… по…», без срока с ориентиром и последним пробегом',
+    'в демо на «Планах» — просроченный, «пора» «с… по…», регулярный, без срока с ориентиром и последним пробегом',
     demoStates === 'просрочено, пора' &&
-      (await run(`document.querySelectorAll('.plan').length`)) === 3 &&
+      (await run(`document.querySelectorAll('.plan').length`)) === 4 &&
       / с \d\d\.\d\d\.\d{4} по \d\d\.\d\d\.\d{4}/.test(demoPlans) &&
+      /срок \d\d\.\d\d\.\d{4} · каждые 12 мес\./.test(demoPlans) &&
       has(demoPlans, 'без срока') &&
       /к [\d ]+ км · сейчас [\d ]+ км \(\d\d\.\d\d/.test(demoPlans),
     `${demoStates}; ${flat(demoPlans)}`,
