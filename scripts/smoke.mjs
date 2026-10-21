@@ -636,7 +636,7 @@ async function scenario() {
   const helpFolds = await run(
     `[...document.querySelectorAll('.help .fold__btn')].map((el) => el.textContent.trim() + ':' + el.getAttribute('aria-expanded')).join(', ')`,
   )
-  const helpTitles = ['Главная', 'Журнал', 'Запись', 'Маршруты', 'Парковки', 'Планы', 'Настройки', 'Машины', 'Данные и синхронизация', 'Если что-то не так']
+  const helpTitles = ['Главная', 'Журнал', 'Запись', 'Маршруты', 'Места', 'Планы', 'Настройки', 'Машины', 'Данные и синхронизация', 'Если что-то не так']
   check(
     'в справке разделы по экранам, «Данные и синхронизация» и «Если что-то не так» — все свёрнуты',
     helpFolds === helpTitles.map((title) => `${title}:false`).join(', '),
@@ -653,6 +653,23 @@ async function scenario() {
   check('справка не шире экрана', wide === true)
   await unfold('Маршруты')
   check('в разделе «Маршруты» порог замера — из константы, числом', /дольше \d+ час/.test(await screen()), line(await screen(), 'дольше'))
+  await unfold('Места')
+  const helpPlaces = await screen()
+  check(
+    'в разделе «Места» — три вида и их подписи',
+    has(helpPlaces, '«Места ›»') &&
+      has(helpPlaces, '«парковка», «участок дороги» или «прочее»') &&
+      has(helpPlaces, '«свободно», «плотно» или «стоим»') &&
+      has(helpPlaces, '«легко», «с трудом» или «никак»') &&
+      has(helpPlaces, 'Когда проще проехать'),
+    line(helpPlaces, 'Кнопки'),
+  )
+  await unfold('Планы')
+  check(
+    'в разделе «Планы» — регулярный план заводит следующий от дня ремонта',
+    has(await screen(), 'само заводит следующий — со сроком от дня ремонта'),
+    line(await screen(), 'заводит'),
+  )
   await act(`[...document.querySelectorAll('.help .fold__btn')].forEach((el) => el.getAttribute('aria-expanded') === 'true' && el.click())`)
   await sleep(300)
   check(
@@ -711,7 +728,7 @@ async function scenario() {
   check(
     'в «О приложении» — схема 2 и девять хранилищ, все пусты',
     has(about, 'Версия схемы данных: 2') &&
-      ['Машины', 'Записи журнала', 'Точки маршрутов', 'Маршруты', 'Поездки', 'Места парковки', 'Наблюдения парковок', 'Общие настройки', 'Планы'].every(
+      ['Машины', 'Записи журнала', 'Точки маршрутов', 'Маршруты', 'Поездки', 'Места', 'Отметки мест', 'Общие настройки', 'Планы'].every(
         // \u042F\u0447\u0435\u0439\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B innerText \u0440\u0430\u0437\u0434\u0435\u043B\u044F\u0435\u0442 \u0442\u0430\u0431\u0443\u043B\u044F\u0446\u0438\u0435\u0439, \u043F\u0443\u0441\u0442\u0430\u044F \u0442\u0440\u0435\u0442\u044C\u044F \u2014 \u0442\u043E\u0436\u0435.
         (label) => new RegExp(`(?:^|\\n)${label}\\t0\\t*(?:\\n|$)`).test(about),
       ),
@@ -735,6 +752,11 @@ async function scenario() {
   check('«Что нового» — строка о «Планах»', has(news, 'Планы — третья вкладка внизу'), line(news, 'Планы —'))
   check('«Что нового» — строка о регулярных планах', has(news, 'Регулярные планы: у срока плана новая кнопка «Регулярно»'), line(news, 'Регулярные'))
   check('«Что нового» — строка о справке', has(news, 'Справка — «?» в шапке «Главной»'), line(news, 'Справка —'))
+  check(
+    '«Что нового» — строка о местах и их видах',
+    has(news, 'Парковки стали «Местами» — ссылка «Места ›»') && has(news, 'парковка, участок дороги или прочее'),
+    line(news, 'Парковки стали'),
+  )
 
   // ─ Валюта: «€» кнопкой подсказки, переживает перезагрузку.
   await unfold('Валюта')
@@ -1185,32 +1207,42 @@ async function parkingsScenario() {
   const todayInPage = await run(`(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })()`)
   const weekdayInPage = await run(`['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'][new Date().getDay()]`)
 
+  /** Кнопки группы с выбранной — «сразу*, с трудом, мест нет». */
+  const group = (label) =>
+    run(`[...document.querySelectorAll('[aria-label="${label}"] button')].map((el) => el.textContent.trim() + (el.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(', ')`)
+
   // ─ Ссылка с «Маршрутов»; отдельной вкладки нет; пусто — подсказка.
   await go('/routes')
   await waitFor(`document.querySelector('.routes .fold__btn') !== null`, 'вкладка «Маршруты»')
-  check('на «Маршрутах» — ссылка «Парковки»', (await act(`return byText('a', 'Парковки ›') !== undefined`)) === true)
-  await act(`byText('a', 'Парковки ›')?.click()`)
-  await waitFor(READY, 'экран парковок')
+  check(
+    'на «Маршрутах» — ссылка «Места ›», «Парковок ›» нет',
+    (await act(`return byText('a', 'Места ›') !== undefined && byText('a', 'Парковки ›') === undefined`)) === true,
+  )
+  await act(`byText('a', 'Места ›')?.click()`)
+  await waitFor(READY, 'экран мест')
   const empty = await screen()
   const tabs = await run(`[...document.querySelectorAll('.tab')].map((el) => el.textContent.trim()).join(', ')`)
   check(
-    'экран парковок по ссылке: пусто — «завести место, потом отметки», вкладки парковок внизу нет',
+    'экран «Места» по ссылке: пусто — подсказка о трёх видах мест и отметках, вкладки внизу нет',
     (await run('location.hash')) === '#/routes/parkings' &&
+      (await run(`document.querySelector('h1')?.textContent.trim()`)) === 'Места' &&
       has(empty, 'Мест пока нет') &&
       has(empty, 'Сначала заведите место') &&
-      has(empty, 'потом ставьте отметки') &&
+      ['парковка', 'участок дороги', 'прочее'].every((kind) => has(empty, kind)) &&
+      has(empty, 'Потом ставьте отметки') &&
       tabs === 'Главная, Маршруты, Планы',
     `${await run('location.hash')}; ${tabs}; ${flat(empty)}`,
   )
   await act(`byText('a', '‹ Маршруты')?.click()`)
   await sleep(600)
   check('«‹ Маршруты» — назад на «Маршруты»', (await run('location.hash')) === '#/routes', await run('location.hash'))
-  await act(`byText('a', 'Парковки ›')?.click()`)
-  await waitFor(READY, 'экран парковок ещё раз')
+  await act(`byText('a', 'Места ›')?.click()`)
+  await waitFor(READY, 'экран мест ещё раз')
 
   // ─ Место: «где» и город обязательны; город — из последней точки, потом — из последнего места.
   await tap('Добавить место')
   check('город первого места — из последней точки', (await value('parking-city')) === 'Москва', await value('parking-city'))
+  check('у нового места «Вид» — три кнопки, выбрана «парковка»', (await group('Вид места')) === 'парковка*, участок дороги, прочее', await group('Вид места'))
   await tap('Сохранить', 300)
   check('место без «где» не сохранить', has(await screen(), 'Впишите, где место') && has(await screen(), 'Новое место'))
   await act(`set(field('parking-where'), 'вдоль забора'); choose(field('parking-point'), optionByText('parking-point', 'Работа')); set(field('parking-price'), 'бесплатно'); set(field('parking-link'), 'https://yandex.ru/maps/')`)
@@ -1223,7 +1255,11 @@ async function parkingsScenario() {
   await tap('Сохранить', 800)
   check('места собраны по городу', (await folds()) === 'Москва | Тверь', await folds())
   const fence = await placeText('вдоль забора')
-  check('у места с точкой — имя точки и цена; отметок нет — «отметок нет», а не «0 %»', has(fence, 'у точки «Работа» · бесплатно') && has(fence, 'отметок нет') && !has(fence, '%'), flat(fence))
+  check(
+    'у места с точкой — вид, имя точки и цена; отметок нет — «отметок нет», а не «0 %»',
+    has(fence, 'парковка · у точки «Работа» · бесплатно') && has(fence, 'отметок нет') && !has(fence, '%'),
+    flat(fence),
+  )
 
   // ─ Отметка: «Отметить» у места — место подставлено, дата — сегодня, время — сейчас.
   await markAt('вдоль забора')
@@ -1237,7 +1273,7 @@ async function parkingsScenario() {
   await tap('Сохранить', 300)
   check('без результата отметку не сохранить', has(await screen(), 'Отметьте, как встали') && has(await screen(), 'Новая отметка'))
   await tap('сразу', 200)
-  check('результат — одной кнопкой из трёх', (await run(`[...document.querySelectorAll('[aria-label="Как встали"] button')].map((el) => el.textContent.trim() + (el.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(', ')`)) === 'сразу*, с трудом, мест нет')
+  check('результат — одной кнопкой из трёх', (await group('Как встали')) === 'сразу*, с трудом, мест нет', await group('Как встали'))
   await act(`set(field('visit-minutes'), '-3')`)
   await sleep(200)
   await tap('Сохранить', 400)
@@ -1344,8 +1380,8 @@ async function parkingsScenario() {
   await act(`set(field('point-name'), 'Вокзал'); set(field('point-city'), 'Тверь')`)
   await sleep(200)
   await tap('Сохранить', 800)
-  await act(`byText('a', 'Парковки ›')?.click()`)
-  await waitFor(READY, 'экран парковок')
+  await act(`byText('a', 'Места ›')?.click()`)
+  await waitFor(READY, 'экран мест')
   await openPlace('у вокзала')
   await tap('Отметить')
   await tap('сразу', 200)
@@ -1375,6 +1411,76 @@ async function parkingsScenario() {
     (await run('location.hash')) === '#/routes/parkings' && (await folds()) === 'Тверь' && (await liveVisits()) === 1,
     `${await run('location.hash')}; ${await folds()}; отметок ${await liveVisits()}`,
   )
+
+  // ─ Участок дороги (#42, Р-31): свои подписи кнопок, минут и итога.
+  const road = 'съезд на Волоколамку'
+  await tap('Добавить место')
+  await tap('участок дороги', 200)
+  check('вид места — кнопкой', (await group('Вид места')) === 'парковка, участок дороги*, прочее', await group('Вид места'))
+  await act(`set(field('parking-where'), ${JSON.stringify(road)}); set(field('parking-city'), 'Москва')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+  check('в списке у участка виден вид', has(await placeText(road), 'участок дороги') && has(await placeText(road), 'отметок нет'), flat(await placeText(road)))
+
+  await markAt(road)
+  check(
+    'отметка участка: «свободно, плотно, стоим» и «Минут проезда»',
+    (await group('Как проехали')) === 'свободно, плотно, стоим' && has(await screen(), 'Минут проезда'),
+    await group('Как проехали'),
+  )
+  await tap('Сохранить', 300)
+  check('без результата не сохранить — словами участка', has(await screen(), 'Отметьте, как проехали: свободно, плотно или стоим'), flat(line(await screen(), 'Отметьте')))
+  await tap('плотно', 200)
+  await act(`set(field('visit-time'), '08:30'); set(field('visit-minutes'), '12')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+
+  // Смена места другого вида — подписи меняются, выбор сбрасывается.
+  await tap('Отметить')
+  check('общая «Отметить» — участок последней отметки', (await selected('visit-place')) === `${road} · Москва`, await selected('visit-place'))
+  await tap('стоим', 200)
+  await act(`choose(field('visit-place'), optionByText('visit-place', 'у вокзала · Тверь'))`)
+  await sleep(300)
+  check('место другого вида: кнопки парковки, выбор сброшен', (await group('Как встали')) === 'сразу, с трудом, мест нет', await group('Как встали'))
+  await act(`choose(field('visit-place'), optionByText('visit-place', ${JSON.stringify(`${road} · Москва`)}))`)
+  await sleep(300)
+  await tap('стоим', 200)
+  await act(`set(field('visit-time'), '18:10')`)
+  await sleep(200)
+  await tap('Сохранить', 800)
+
+  await openPlace(road)
+  view = await screen()
+  check(
+    'участок: «Когда проще проехать», доли словами участка, медиана минут проезда с «без минут»',
+    (await folds()) === 'Когда проще проехать | Отметки' &&
+      has(view, 'свободно 0 %, плотно 50 %, стоим 50 % — по 2 отметкам') &&
+      has(view, 'Проезд: 12 мин — медиана 1 отметки') &&
+      has(view, 'без минут — 1 из 2') &&
+      has(view, 'свободно\tплотно\tстоим'),
+    `${await folds()}; ${flat(view)}`,
+  )
+  check('в списке отметок — «плотно», «12 мин проезда»', has(view, 'плотно') && has(view, '12 мин проезда'), flat(line(view, 'проезда')))
+
+  // Правка вида — отметки остаются и показываются словами нового вида.
+  await tap('Править')
+  await tap('прочее', 200)
+  await tap('Сохранить', 800)
+  view = await screen()
+  check(
+    'вид сменили на «прочее»: «Когда проще», «легко / с трудом / никак», «12 мин ушло», отметки на месте',
+    (await folds()) === 'Когда проще | Отметки' &&
+      has(view, 'легко 0 %, с трудом 50 %, никак 50 % — по 2 отметкам') &&
+      has(view, '12 мин ушло') &&
+      (await liveVisits()) === 3,
+    `${await folds()}; ${flat(view)}`,
+  )
+
+  // Убрать за собой: дальше сценарии ждут одно место в Твери с одной отметкой.
+  await tap('Править')
+  await tap('Удалить', 300)
+  await tap('Удалить с отметками', 800)
+  check('участок удалён с отметками', (await folds()) === 'Тверь' && (await liveVisits()) === 1, `${await folds()}; отметок ${await liveVisits()}`)
 }
 
 /**
@@ -2346,6 +2452,28 @@ async function demoScenario() {
       has(demoPlace, 'без минут —') &&
       (await run(`document.querySelectorAll('.visit--noted').length`)) > 0,
     flat(line(demoPlace, '18 ч')),
+  )
+
+  // ─ Перекрёсток демо (#42): участок дороги в Москве, утром — плотно или стоим, днём — свободно.
+  await go('/routes/parkings')
+  await waitFor(`document.querySelector('.parkings .parking') !== null`, 'места демо')
+  const demoCross = await run(`[...document.querySelectorAll('.parking')].find((el) => el.textContent.includes('перекрёсток'))?.innerText ?? ''`)
+  check('в демо среди мест Москвы — перекрёсток, вид «участок дороги»', has(demoCross, 'участок дороги') && /свободно \d+ %, плотно \d+ %, стоим \d+ %/.test(demoCross), flat(demoCross))
+  await act(`[...document.querySelectorAll('.parking')].find((el) => el.textContent.includes('перекрёсток'))?.querySelector('.parking__open')?.click()`)
+  await sleep(600)
+  const demoRoad = await screen()
+  const roadFolds = await run(`[...document.querySelectorAll('.parkings .fold__btn')].map((el) => el.textContent.trim()).join(' | ')`)
+  const morningJam = /(?:^|\n)8 ч\t(\d+) %\t(\d+) %\t(\d+) %/.exec(demoRoad)
+  check(
+    'в демо у перекрёстка: «Когда проще проехать», утром чаще плотно и стоим, медиана минут проезда',
+    roadFolds === 'Когда проще проехать | Отметки' &&
+      has(demoRoad, 'свободно\tплотно\tстоим') &&
+      morningJam !== null &&
+      Number(morningJam[2]) + Number(morningJam[3]) >= 60 &&
+      /Проезд: \d+ мин — медиана \d+ отмет/.test(demoRoad) &&
+      has(demoRoad, 'без минут —') &&
+      has(demoRoad, 'мин проезда'),
+    `${roadFolds}; ${flat(line(demoRoad, '8 ч'))}`,
   )
 
   // ─ Планы демо: просроченный, «с… по…», регулярный, без срока с ориентиром и один сделанный.

@@ -111,9 +111,11 @@ export type Trip = Base & {
   note?: string
 }
 
-// ─── Парковки (Р-16) ───────────────────────────────────────────────────────
+// ─── Места: парковки, участки дорог и прочее (Р-16, Р-31) ──────────────────
 
 export type Parking = Base & {
+  /** вид места; нет поля — парковка (Р-31) */
+  kind?: 'parking' | 'road' | 'other'
   /** у какой точки */
   pointId?: string
   city: string
@@ -131,8 +133,9 @@ export type ParkingVisit = Base & {
   date: string
   /** ЧЧ:ММ */
   time: string
-  /** сразу / с трудом / мест нет */
+  /** сразу / с трудом / мест нет; подписи — по виду места (Р-31) */
   result: 'easy' | 'hard' | 'none'
+  /** у парковки — минуты поиска, у участка — проезда, у прочего — сколько ушло */
   searchMinutes?: number
   note?: string
 }

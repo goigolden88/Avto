@@ -127,10 +127,10 @@ export function RoutesTab() {
       <header className="screen-head">
         <div className="screen-head__row">
           <h1>Маршруты</h1>
-          {/* Парковки — своим экраном отсюда, а не вкладкой (Р-24). */}
+          {/* Места — своим экраном отсюда, а не вкладкой (Р-24, Р-31). */}
           <div className="screen-head__tools">
             <Link className="link-btn" to="/routes/parkings">
-              Парковки ›
+              Места ›
             </Link>
           </div>
         </div>
@@ -581,7 +581,7 @@ function Errors({ list }: { list: readonly string[] }) {
 
 /**
  * Форма точки: имя и город; город новой — из последней заведённой. Точку
- * из маршрутов и у мест парковки не удалить — сначала маршруты и места.
+ * из маршрутов и у мест любого вида не удалить — сначала маршруты и места.
  * Имя меняется везде: маршруты и места ссылаются на точку по id.
  */
 function PointForm({
@@ -642,7 +642,7 @@ function PointForm({
           {block ? (
             <>
               <p>{block}</p>
-              <p className="muted">Удалить можно точку, которой нет ни в маршрутах «откуда» или «куда», ни у мест парковки.</p>
+              <p className="muted">Удалить можно точку, которой нет ни в маршрутах «откуда» или «куда», ни у мест.</p>
               <div className="row">
                 <button type="button" className="btn" onClick={() => setAsking(false)}>
                   Понятно

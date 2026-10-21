@@ -45,13 +45,13 @@ export function routesOfPoint(pointId: string, routes: readonly Route[]): Route[
   return routes.filter((route) => !route.deleted && (route.fromId === pointId || route.toId === pointId))
 }
 
-/** Живые места парковки у точки. */
+/** Живые места у точки — любого вида (Р-31). */
 export function parkingsOfPoint(pointId: string, parkings: readonly Parking[]): Parking[] {
   return parkings.filter((parking) => !parking.deleted && parking.pointId === pointId)
 }
 
 /**
- * Почему точку не удалить: она в маршрутах или у мест парковки —
+ * Почему точку не удалить: она в маршрутах или у мест —
  * «Сначала удалите маршруты: 2 и уберите точку у мест: 1». Null — удалить можно.
  */
 export function pointDeleteBlock(pointId: string, routes: readonly Route[], parkings: readonly Parking[]): string | null {

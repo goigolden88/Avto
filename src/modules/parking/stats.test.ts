@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { ParkingVisit } from '../../app/model.ts'
-import { NO_VISITS, parkingStats, percent, searchText, sharesText, visitsCount, weekdayOf, withoutText } from './stats.ts'
+import {
+  NO_VISITS,
+  parkingStats,
+  percent,
+  searchText,
+  sharesLine,
+  sharesText,
+  visitsCount,
+  weekdayOf,
+  withoutText,
+} from './stats.ts'
 
 const at = '2026-10-17T10:00:00.000Z'
 
@@ -19,19 +29,25 @@ describe('доли', () => {
     ]
     const stats = parkingStats(visits)
     expect(stats.count).toBe(10)
-    expect(sharesText(stats)).toBe('сразу 60 %, с трудом 30 %, мест нет 10 % — по 10 отметкам')
+    expect(sharesText(stats, 'parking')).toBe('сразу 60 %, с трудом 30 %, мест нет 10 % — по 10 отметкам')
+  })
+
+  it('подписи — по виду места, счёт тот же', () => {
+    const stats = parkingStats([visit('easy'), visit('easy'), visit('hard'), visit('none')])
+    expect(sharesText(stats, 'road')).toBe('свободно 50 %, плотно 25 %, стоим 25 % — по 4 отметкам')
+    expect(sharesLine(stats, 'other')).toBe('легко 50 %, с трудом 25 %, никак 25 %')
   })
 
   it('до целых процентов; в сумме не 100 — так и показывается', () => {
     const stats = parkingStats([visit('easy'), visit('hard'), visit('none')])
-    expect(sharesText(stats)).toBe('сразу 33 %, с трудом 33 %, мест нет 33 % — по 3 отметкам')
-    expect(sharesText(parkingStats([visit('hard')]))).toBe('сразу 0 %, с трудом 100 %, мест нет 0 % — по 1 отметке')
+    expect(sharesText(stats, 'parking')).toBe('сразу 33 %, с трудом 33 %, мест нет 33 % — по 3 отметкам')
+    expect(sharesText(parkingStats([visit('hard')]), 'parking')).toBe('сразу 0 %, с трудом 100 %, мест нет 0 % — по 1 отметке')
     expect(percent(2, 3)).toBe(67)
   })
 
   it('отметок нет — «отметок нет», а не «0 %»', () => {
     const stats = parkingStats([])
-    expect(sharesText(stats)).toBe(NO_VISITS)
+    expect(sharesText(stats, 'road')).toBe(NO_VISITS)
     expect(stats.byHour).toEqual([])
     expect(stats.byWeekday).toEqual([])
   })
@@ -74,14 +90,15 @@ describe('минуты поиска', () => {
       visit('easy'),
     ])
     expect(stats.search).toEqual({ median: 8, count: 4, without: 1 })
-    expect(searchText(stats.search)).toBe('8 мин — медиана 4 отметок')
+    expect(searchText(stats.search, 'parking')).toBe('8 мин — медиана 4 отметок')
     expect(withoutText(stats.search)).toBe('без минут — 1 из 5, в медиану не входят')
   })
 
   it('минут нет ни у одной — так и сказано; все с минутами — подписи нет', () => {
-    expect(searchText(parkingStats([visit('easy')]).search)).toBe('минут поиска нет')
+    expect(searchText(parkingStats([visit('easy')]).search, 'parking')).toBe('минут поиска нет')
+    expect(searchText(parkingStats([visit('easy')]).search, 'road')).toBe('минут проезда нет')
     const one = parkingStats([visit('easy', { searchMinutes: 0 })]).search
-    expect(searchText(one)).toBe('0 мин — медиана 1 отметки')
+    expect(searchText(one, 'road')).toBe('0 мин — медиана 1 отметки')
     expect(withoutText(one)).toBe('')
   })
 

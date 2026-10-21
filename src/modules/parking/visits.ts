@@ -1,25 +1,21 @@
 /**
- * Отметки парковки (Р-16): встал или нет — сразу, с трудом, мест нет — и
- * сколько минут искал. Дата — сегодня, время — сейчас, место — из своих.
+ * Отметки места (Р-16, Р-31): как вышло — у парковки «сразу, с трудом, мест
+ * нет», у участка дороги «свободно, плотно, стоим» — и сколько минут ушло.
+ * Дата — сегодня, время — сейчас, место — из своих. Подписи — по виду места
+ * (`kinds.ts`), значения в базе у всех видов одни.
  *
  * Чистые функции, без React и без базы.
  */
 
-import type { ParkingVisit } from '../../app/model.ts'
+import type { Parking, ParkingVisit } from '../../app/model.ts'
 import { isDateStr } from '../../shared/core/dates.ts'
 import { parseTime } from '../routes/trips.ts'
+import { KIND_TEXTS, kindOf, type PlaceKind, type VisitResult } from './kinds.ts'
 
-export type VisitResult = ParkingVisit['result']
+export type { VisitResult }
 
 /** Порядок кнопок в форме и долей в расчётах. */
 export const RESULTS: readonly VisitResult[] = ['easy', 'hard', 'none']
-
-/** Как результат назван человеку. */
-export const RESULT_LABELS: Record<VisitResult, string> = {
-  easy: 'сразу',
-  hard: 'с трудом',
-  none: 'мест нет',
-}
 
 /** Вместо места, когда отметка есть, а места нет: удалено или ещё не приехало. */
 export const MISSING_PARKING = 'место не найдено'
@@ -55,11 +51,20 @@ export function newVisitDraft(parkingId: string, day: string, time: string): Vis
   return { parkingId, date: day, time, result: '', searchMinutes: '', note: '' }
 }
 
-export const SEARCH_MINUTES_ERROR = 'Минуты поиска — целое число от 0'
+/**
+ * Место отметки сменили в форме. Вид другой — выбранный результат
+ * сбрасывается: те же кнопки значат уже другое («сразу» — не «свободно»).
+ * Место не найдено — оно парковка.
+ */
+export function withPlace(draft: VisitDraft, parkingId: string, parkings: readonly Parking[]): VisitDraft {
+  const kind = (id: string) => kindOf(parkings.find((parking) => parking.id === id))
+  const result = kind(draft.parkingId) === kind(parkingId) ? draft.result : ''
+  return { ...draft, parkingId, result }
+}
 
 /**
- * Минуты поиска: пусто — не указаны (undefined), целое от 0 — число;
- * 0 — «встал без поиска». Минус, дробь, текст — null: ошибка.
+ * Минуты: пусто — не указаны (undefined), целое от 0 — число; 0 — «встал
+ * без поиска», «меньше минуты». Минус, дробь, текст — null: ошибка.
  */
 export function parseSearchMinutes(input: string): number | undefined | null {
   const value = input.trim()
@@ -69,20 +74,27 @@ export function parseSearchMinutes(input: string): number | undefined | null {
 
 export type VisitBuild = { ok: true; visit: ParkingVisit } | { ok: false; errors: string[] }
 
+/** «Отметьте, как встали: сразу, с трудом или мест нет» — по виду места. */
+export function resultError(kind: PlaceKind): string {
+  const { ask, results } = KIND_TEXTS[kind]
+  return `Отметьте, ${ask.toLowerCase()}: ${results.easy}, ${results.hard} или ${results.none}`
+}
+
 /**
  * Отметка из формы. Место, дата, время и результат обязательны; минуты
  * и заметка — по желанию: пустое поле в запись не пишется, прежнее стирается.
+ * Вид места — только для текста ошибок.
  */
-export function buildVisit(draft: VisitDraft, base: ParkingVisit | undefined, id: string, at: string): VisitBuild {
+export function buildVisit(draft: VisitDraft, base: ParkingVisit | undefined, id: string, at: string, kind: PlaceKind): VisitBuild {
   const errors: string[] = []
   if (!draft.parkingId) errors.push('Выберите место')
   if (!isDateStr(draft.date)) errors.push('Укажите дату')
   const time = parseTime(draft.time)
   if (time === null) errors.push('Укажите время — ЧЧ:ММ')
   const result = draft.result
-  if (result === '') errors.push('Отметьте, как встали: сразу, с трудом или мест нет')
+  if (result === '') errors.push(resultError(kind))
   const minutes = parseSearchMinutes(draft.searchMinutes)
-  if (minutes === null) errors.push(SEARCH_MINUTES_ERROR)
+  if (minutes === null) errors.push(KIND_TEXTS[kind].minutesError)
   if (errors.length > 0 || time === null || result === '' || minutes === null) return { ok: false, errors }
 
   const { searchMinutes: _minutes, note: _note, ...rest } = base ?? { id, updatedAt: at }
@@ -104,8 +116,12 @@ export function sortVisits(visits: readonly ParkingVisit[]): ParkingVisit[] {
     })
 }
 
-/** Минуты в строке отметки: «12 мин поиска», 0 — «встал без поиска», нет — пусто. */
-export function searchLabel(visit: ParkingVisit): string {
+/**
+ * Минуты в строке отметки по виду места: «12 мин поиска», 0 — «встал без
+ * поиска»; у участка — «12 мин проезда», 0 — «меньше минуты». Нет — пусто.
+ */
+export function searchLabel(visit: ParkingVisit, kind: PlaceKind): string {
   if (visit.searchMinutes === undefined) return ''
-  return visit.searchMinutes === 0 ? 'встал без поиска' : `${visit.searchMinutes} мин поиска`
+  const texts = KIND_TEXTS[kind]
+  return visit.searchMinutes === 0 ? texts.zero : texts.minutes(visit.searchMinutes)
 }
