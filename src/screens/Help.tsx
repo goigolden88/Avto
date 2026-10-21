@@ -4,7 +4,8 @@ import { PERIOD_KINDS, PERIOD_LABELS } from '../modules/log/filter.ts'
 import { FUEL_FIELDS, MISMATCH_PERCENT } from '../modules/log/fuel.ts'
 import { formatNumber } from '../modules/log/numbers.ts'
 import { CHEAP_SPAN } from '../modules/log/stats.ts'
-import { RESULT_LABELS, RESULTS } from '../modules/parking/visits.ts'
+import { KIND_TEXTS, PLACE_KIND_LABELS, PLACE_KINDS, type PlaceKind } from '../modules/parking/kinds.ts'
+import { RESULTS } from '../modules/parking/visits.ts'
 import { STATE_LABELS, TERM_LABELS, TERMS } from '../modules/plans/plans.ts'
 import { TIMER_LIMIT_TEXT } from '../modules/routes/timer.ts'
 import { SOURCE_LABELS } from '../modules/routes/trips.ts'
@@ -24,7 +25,8 @@ const KINDS_TEXT = listText(KINDS.map((kind) => KIND_LABELS[kind]))
 const PERIODS_TEXT = listText(PERIOD_KINDS.map((kind) => PERIOD_LABELS[kind]))
 const FUEL_THREE = listText(FUEL_FIELDS.map((field) => fieldLabel(field, 'fuel')))
 const TANK_TEXT = listText(TANK_MARKS.map((mark) => mark.label))
-const RESULTS_TEXT = listText(RESULTS.map((result) => RESULT_LABELS[result]), 'или')
+const PLACE_KINDS_TEXT = listText(PLACE_KINDS.map((kind) => PLACE_KIND_LABELS[kind]), 'или')
+const resultsText = (kind: PlaceKind) => listText(RESULTS.map((result) => KIND_TEXTS[kind].results[result]), 'или')
 const TERMS_TEXT = listText(TERMS.map((term) => TERM_LABELS[term]), 'или')
 const WARN_TEXT = `${WARN_DAYS} ${plural(WARN_DAYS, ['день', 'дня', 'дней'])}`
 
@@ -49,7 +51,7 @@ export function Help() {
 
       <p className="muted block">
         Учёт машины: заправки, мойки, ремонты, штрафы и прочие траты, сколько стоит километр, какой дорогой ехать
-        быстрее и где проще встать. Нажмите на раздел — он откроется.
+        быстрее, где проще встать и когда проще проехать. Нажмите на раздел — он откроется.
       </p>
 
       <Fold id="help:home" title="Главная" folded>
@@ -142,28 +144,33 @@ export function Help() {
           руками.
         </p>
         <p>
-          Точку, которая стоит в маршруте или у места парковки, не удалить. Удаление маршрута уносит его поездки — после
+          Точку, которая стоит в маршруте или у места, не удалить. Удаление маршрута уносит его поездки — после
           вопроса.
         </p>
-        <p>«Парковки ›» в шапке — экран парковок.</p>
+        <p>«Места ›» в шапке — экран мест: парковки, участки дорог и прочее.</p>
       </Fold>
 
-      <Fold id="help:parkings" title="Парковки" folded>
+      <Fold id="help:places" title="Места" folded>
         <p>
-          Вход — «Парковки ›» в шапке «Маршрутов», назад — «‹ Маршруты». Места собраны по городам.
+          Вход — «Места ›» в шапке «Маршрутов», назад — «‹ Маршруты». Места собраны по городам, у каждого виден вид.
         </p>
         <p>
-          «Добавить место»: «Где» и «Город» обязательны; точка, цена, ссылка и заметка — по желанию. Цена — строкой,
-          справочно: деньгами она не считается и в «Итоги» не идёт.
+          «Добавить место»: «Вид» — {PLACE_KINDS_TEXT}, у нового — «{PLACE_KIND_LABELS.parking}». «Где» и «Город»
+          обязательны; точка, цена, ссылка и заметка — по желанию. Цена — строкой, справочно: деньгами она не
+          считается и в «Итоги» не идёт.
         </p>
         <p>
-          «Отметить» — как встали: {RESULTS_TEXT}, и сколько минут искали — по желанию.
+          «Отметить» — как вышло и сколько минут ушло, минуты по желанию. Кнопки — по виду места: у парковки{' '}
+          {resultsText('parking')} и минуты поиска; у участка дороги {resultsText('road')} и минуты проезда; у прочего{' '}
+          {resultsText('other')} и сколько минут ушло. Сменили в отметке место другого вида — выбор кнопки сбрасывается.
         </p>
         <p>
-          Нажмите на место — «Когда проще встать»: доли по всем отметкам, «По часу», «По дню недели» и медиана минут
-          поиска. Ниже — «Отметки»: нажмите, чтобы поправить. «Править» — само место; его удаление уносит отметки —
-          после вопроса.
+          Нажмите на место — итог: у парковки «Когда проще встать», у участка «Когда проще проехать», у прочего «Когда
+          проще». В нём доли по всем отметкам, «По часу», «По дню недели» и медиана минут. Ниже — «Отметки»: нажмите,
+          чтобы поправить. «Править» — само место; поменяете вид — отметки останутся и покажутся словами нового вида.
+          Удаление места уносит отметки — после вопроса.
         </p>
+        <p>Пробок в реальном времени нет: итог — только по вашим отметкам.</p>
       </Fold>
 
       <Fold id="help:plans" title="Планы" folded>
@@ -181,7 +188,8 @@ export function Help() {
         </p>
         <p>
           «Сделано» — откроется запись «{KIND_LABELS.repair}» с текстом плана: впишите сумму и сохраните, и план уйдёт в
-          свёрнутый блок «Сделано» с датой. Закроете без сохранения — план останется.
+          свёрнутый блок «Сделано» с датой. Закроете без сохранения — план останется. У плана «{TERM_LABELS.every}»
+          «Сделано» само заводит следующий — со сроком от дня ремонта.
         </p>
         <p>Напоминаний нет: о сроке видно, когда открываете приложение.</p>
       </Fold>

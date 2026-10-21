@@ -1,6 +1,6 @@
 /**
  * Демо-данные (Я-44, Я-45 «FamilyCore»): две машины, год журнала и два
- * месяца поездок и парковок до дня входа в демо. Даты отсчитываются от этого дня —
+ * месяца поездок и отметок мест до дня входа в демо. Даты отсчитываются от этого дня —
  * демо всегда свежее.
  *
  * Машины — каждодневная с бортовым компьютером (у её заправок введён
@@ -26,6 +26,10 @@
  * сразу, вечером мест почти нет; дома днём легко, вечером — с трудом или
  * никак; в ТЦ в субботу хуже, чем в воскресенье. Часть отметок — без минут
  * поиска, несколько — с заметкой.
+ *
+ * Участок дороги (#42, Р-31): перекрёсток у работы с отметками за те же дни.
+ * В будни утром и вечером — плотно или стоим, днём и в выходные — свободно;
+ * минуты проезда — у каждой второй отметки.
  *
  * Планы (#34, Р-28): просроченный, «с… по…», который идёт, без срока
  * с ориентиром по пробегу и один сделанный — ремонтом колодок из журнала.
@@ -246,16 +250,21 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-// ─── Парковки ──────────────────────────────────────────────────────────────
+// ─── Места ─────────────────────────────────────────────────────────────────
 
-type ParkingKey = 'home' | 'work' | 'mall' | 'station'
+type ParkingKey = 'home' | 'work' | 'mall' | 'station' | 'cross'
 
-const PARKINGS: Record<ParkingKey, { point?: PointKey; city: string; where: string; price?: string; link?: string; note?: string }> = {
+const PARKINGS: Record<
+  ParkingKey,
+  { kind?: Parking['kind']; point?: PointKey; city: string; where: string; price?: string; link?: string; note?: string }
+> = {
   home: { point: 'home', city: CITY, where: 'двор за домом', price: 'бесплатно' },
   work: { point: 'work', city: CITY, where: 'вдоль забора у работы', price: 'бесплатно', note: 'к вечеру занимает соседний офис' },
   mall: { point: 'mall', city: CITY, where: 'ТЦ Мега, минус первый', price: 'первые три часа бесплатно', link: 'https://yandex.ru/maps/' },
   // Без точки и в другом городе: места на экране собраны по городу.
   station: { city: 'Тверь', where: 'у вокзала', price: 'платно, по часам' },
+  // Участок дороги (Р-31): загрузка по своим отметкам, минуты — проезда.
+  cross: { kind: 'road', point: 'work', city: CITY, where: 'перекрёсток у съезда к работе', note: 'долгий левый поворот' },
 }
 
 /** Минуты поиска по результату — по кругу. */
@@ -263,6 +272,12 @@ const SEARCH: Record<ParkingVisit['result'], readonly number[]> = { easy: [0, 1,
 
 /** Каждая такая отметка — без минут: искал, но не засёк. В медиану она не входит. */
 const NO_MINUTES_EVERY = 4
+
+/** Минуты проезда перекрёстка по результату — по кругу. */
+const CROSS_MINUTES: Record<ParkingVisit['result'], readonly number[]> = { easy: [2, 3, 2], hard: [7, 9, 6], none: [15, 12, 18] }
+
+/** У перекрёстка минуты — только у каждой такой отметки: на ходу их не засекают. */
+const CROSS_MINUTES_EVERY = 2
 
 /** За сколько дней до входа — поездка в Тверь. */
 const STATION_AGO = 33
@@ -316,7 +331,7 @@ function midnight(day: DateStr): number {
 
 /**
  * Демо на день входа `day`: машины, год журнала, маршруты с поездками,
- * парковки с отметками и валюта. Записи «внесены»
+ * места с отметками и валюта. Записи «внесены»
  * в день своей даты — id и `updatedAt` по нему: порядок внесения (Р-21)
  * совпадает с датами, и последняя внесённая — заправка дня входа.
  */
@@ -449,7 +464,7 @@ export function demoData(day: DateStr): DemoData {
     weekday++
   }
 
-  // Парковки: места заведены в начале года демо, отметки — в свой день.
+  // Места: заведены в начале года демо, отметки — в свой день.
   const parkingOf = (key: ParkingKey): Parking => {
     const { point, ...fields } = PARKINGS[key]
     return { ...stamp(first), ...fields, ...(point ? { pointId: points[point].id } : {}) }
@@ -459,9 +474,11 @@ export function demoData(day: DateStr): DemoData {
     work: parkingOf('work'),
     mall: parkingOf('mall'),
     station: parkingOf('station'),
+    cross: parkingOf('cross'),
   }
 
   const visits: ParkingVisit[] = []
+  let crossings = 0
   const visit = (key: ParkingKey, date: DateStr, hour: number, result: ParkingVisit['result'], note?: string) => {
     const n = visits.length
     const record: ParkingVisit = {
@@ -471,7 +488,12 @@ export function demoData(day: DateStr): DemoData {
       time: `${pad2(hour)}:${PAST_HOUR[n % PAST_HOUR.length] ?? '00'}`,
       result,
     }
-    if (n % NO_MINUTES_EVERY !== NO_MINUTES_EVERY - 1) record.searchMinutes = SEARCH[result][n % SEARCH[result].length] ?? 0
+    if (key === 'cross') {
+      const k = crossings++
+      if (k % CROSS_MINUTES_EVERY === 0) record.searchMinutes = CROSS_MINUTES[result][k % CROSS_MINUTES[result].length] ?? 0
+    } else if (n % NO_MINUTES_EVERY !== NO_MINUTES_EVERY - 1) {
+      record.searchMinutes = SEARCH[result][n % SEARCH[result].length] ?? 0
+    }
     if (note) record.note = note
     visits.push(record)
   }
@@ -492,9 +514,16 @@ export function demoData(day: DateStr): DemoData {
       if (weekdayOf(date) !== 5) visit('mall', date, 12, 'easy')
       else if (saturdays++ === 2) visit('mall', date, 12, 'none', 'распродажа, минус первый занят')
       else visit('mall', date, 12, 'hard')
+      // Перекрёсток в выходные свободен, изредка — плотно.
+      if (restday % 2 === 0) visit('cross', date, 11, restday % 6 === 4 ? 'hard' : 'easy')
       restday++
       continue
     }
+
+    // Перекрёсток в будни: утром и вечером — плотно или стоим, днём — свободно.
+    visit('cross', date, 8, workday % 5 === 4 ? 'easy' : workday % 2 === 0 ? 'none' : 'hard', workday === 7 ? 'авария на повороте' : undefined)
+    if (workday % 3 === 1) visit('cross', date, 13, workday % 9 === 4 ? 'hard' : 'easy')
+    if (workday % 2 === 0) visit('cross', date, 18, workday % 6 === 0 ? 'none' : 'hard')
 
     // Будни: у работы утром сразу, к девяти — когда как; вечером мест почти нет.
     const late = workday % 3 === 2

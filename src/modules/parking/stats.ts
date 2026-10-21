@@ -1,7 +1,9 @@
 /**
- * Когда проще встать (Р-16): по месту — доли «сразу / с трудом / мест нет»
- * всех отметок, по часу и по дню недели; медиана минут поиска. Рядом —
- * всегда число отметок: порога «мало отметок» нет, основание видно.
+ * Когда проще (Р-16, Р-31): по месту — доли трёх результатов всех отметок,
+ * по часу и по дню недели; медиана минут. Рядом — всегда число отметок:
+ * порога «мало отметок» нет, основание видно. Счёт от вида места не зависит,
+ * подписи — по виду: «сразу / с трудом / мест нет» у парковки, «свободно /
+ * плотно / стоим» у участка дороги.
  *
  * Медиана, час и его подпись — общие с маршрутами (`routes/compare.ts`).
  * Чистые функции, без React и без базы. Ничего из этого не хранится (Р-09).
@@ -10,12 +12,13 @@
 import type { ParkingVisit } from '../../app/model.ts'
 import { daysBetween, isDateStr, plural, weekStart } from '../../shared/core/dates.ts'
 import { hourOf, median } from '../routes/compare.ts'
-import { RESULT_LABELS, RESULTS, type VisitResult } from './visits.ts'
+import { KIND_TEXTS, type PlaceKind } from './kinds.ts'
+import { RESULTS, type VisitResult } from './visits.ts'
 
 /** Сколько отметок каждого результата и всего. */
 export type Shares = Record<VisitResult, number> & { count: number }
 
-/** Медиана минут поиска, на скольких отметках с минутами и сколько без них. */
+/** Медиана минут (поиска, проезда), на скольких отметках с минутами и сколько без них. */
 export type Search = { median: number | null; count: number; without: number }
 
 export type ParkingStats = Shares & {
@@ -76,21 +79,22 @@ export function percent(part: number, count: number): number {
   return count === 0 ? 0 : Math.round((part / count) * 100)
 }
 
-/** «сразу 60 %, с трудом 30 %, мест нет 10 %»; отметок нет — «отметок нет». */
-export function sharesLine(each: Shares): string {
+/** «сразу 60 %, с трудом 30 %, мест нет 10 %» — подписи по виду; отметок нет — «отметок нет». */
+export function sharesLine(each: Shares, kind: PlaceKind): string {
   if (each.count === 0) return NO_VISITS
-  return RESULTS.map((result) => `${RESULT_LABELS[result]} ${percent(each[result], each.count)} %`).join(', ')
+  const labels = KIND_TEXTS[kind].results
+  return RESULTS.map((result) => `${labels[result]} ${percent(each[result], each.count)} %`).join(', ')
 }
 
 /** «сразу 60 %, с трудом 30 %, мест нет 10 % — по 10 отметкам»; пусто — «отметок нет». */
-export function sharesText(each: Shares): string {
+export function sharesText(each: Shares, kind: PlaceKind): string {
   if (each.count === 0) return NO_VISITS
-  return `${sharesLine(each)} — по ${each.count} ${plural(each.count, ['отметке', 'отметкам', 'отметкам'])}`
+  return `${sharesLine(each, kind)} — по ${each.count} ${plural(each.count, ['отметке', 'отметкам', 'отметкам'])}`
 }
 
-/** «7 мин — медиана 6 отметок»; минут нет ни у одной — «минут поиска нет». */
-export function searchText(search: Search): string {
-  if (search.median === null) return 'минут поиска нет'
+/** «7 мин — медиана 6 отметок»; минут нет ни у одной — «минут поиска нет», «минут проезда нет». */
+export function searchText(search: Search, kind: PlaceKind): string {
+  if (search.median === null) return KIND_TEXTS[kind].noMinutes
   return `${search.median} мин — медиана ${search.count} ${plural(search.count, ['отметки', 'отметок', 'отметок'])}`
 }
 

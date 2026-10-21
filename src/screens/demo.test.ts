@@ -4,6 +4,7 @@ import type { Entry } from '../app/model.ts'
 import { KIND_FIELDS } from '../modules/log/entries.ts'
 import { currentPeriod, type LogFilter } from '../modules/log/filter.ts'
 import { cheapStations, fuelNotes, perKm, periodStats } from '../modules/log/stats.ts'
+import { kindOf } from '../modules/parking/kinds.ts'
 import { parkingsByCity, visitsOf } from '../modules/parking/parkings.ts'
 import { parkingStats, percent } from '../modules/parking/stats.ts'
 import { dueCount, lastReading, listPlans, planState, termOf } from '../modules/plans/plans.ts'
@@ -290,6 +291,40 @@ describe.each(DAYS)('демо от %s', (day) => {
       const search = statsOf('вдоль забора у работы').search
       expect(search.median).not.toBeNull()
       expect(search.without).toBeGreaterThan(0)
+    })
+
+    describe('перекрёсток — участок дороги', () => {
+      const cross = 'перекрёсток у съезда к работе'
+      const roads = data.parkings.filter((parking) => kindOf(parking) === 'road')
+
+      it('один участок, в Москве, у точки; остальные места — парковки без поля вида', () => {
+        expect(roads.map((parking) => [parking.where, parking.city])).toEqual([[cross, 'Москва']])
+        expect(roads[0]?.pointId).toBeDefined()
+        expect(data.parkings.filter((parking) => parking.kind === undefined)).toHaveLength(data.parkings.length - 1)
+      })
+
+      it('отметки — за те же два месяца, в будни и выходные', () => {
+        const dates = visitsOf(byWhere(cross)?.id ?? '', visits).map((visit) => visit.date).sort()
+        expect(daysBetween(dates[0] ?? day, day)).toBeGreaterThanOrEqual(TRIP_DAYS - 7)
+        const days = new Set(statsOf(cross).byWeekday.map((row) => row.day))
+        expect(days.has(5) || days.has(6)).toBe(true)
+        expect(days.has(0)).toBe(true)
+      })
+
+      it('в будни утром и вечером чаще плотно и стоим, днём и в выходные — свободно', () => {
+        const jam = (hour: number) => (shareAt(cross, hour, 'hard') ?? 0) + (shareAt(cross, hour, 'none') ?? 0)
+        expect(jam(8)).toBeGreaterThanOrEqual(60)
+        expect(jam(18)).toBe(100)
+        expect(shareAt(cross, 13, 'easy') ?? 0).toBeGreaterThanOrEqual(60)
+        expect(shareAt(cross, 11, 'easy') ?? 0).toBeGreaterThanOrEqual(60)
+      })
+
+      it('минуты проезда — у части отметок, медиана считается', () => {
+        const search = statsOf(cross).search
+        expect(search.median).not.toBeNull()
+        expect(search.count).toBeGreaterThan(0)
+        expect(search.without).toBeGreaterThan(0)
+      })
     })
   })
 

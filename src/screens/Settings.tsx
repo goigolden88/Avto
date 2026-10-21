@@ -32,8 +32,8 @@ const LABELS: Record<SyncedStore, string> = {
   points: 'Точки маршрутов',
   routes: 'Маршруты',
   trips: 'Поездки',
-  parkings: 'Места парковки',
-  parkingVisits: 'Наблюдения парковок',
+  parkings: 'Места',
+  parkingVisits: 'Отметки мест',
   prefs: 'Общие настройки',
   plans: 'Планы',
 }

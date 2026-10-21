@@ -26,7 +26,7 @@ function visit(id: string, parkingId: string, fields: Partial<ParkingVisit> = {}
 }
 
 describe('место из формы', () => {
-  const empty = { where: '', city: '', pointId: '', price: '', link: '', note: '' }
+  const empty = { kind: 'parking' as const, where: '', city: '', pointId: '', price: '', link: '', note: '' }
 
   it('«где» и город обязательны', () => {
     expect(buildParking({ ...empty, where: ' ' }, undefined, 'K1', at)).toEqual({
@@ -43,7 +43,7 @@ describe('место из формы', () => {
   })
 
   it('точка, цена строкой, ссылка и заметка — как вписаны', () => {
-    const draft = { where: 'ТЦ', city: 'Москва', pointId: 'P1', price: '150 ₽/час', link: 'https://example.org', note: 'вход с торца' }
+    const draft = { ...empty, where: 'ТЦ', city: 'Москва', pointId: 'P1', price: '150 ₽/час', link: 'https://example.org', note: 'вход с торца' }
     expect(buildParking(draft, undefined, 'K1', at)).toEqual({
       ok: true,
       parking: { id: 'K1', updatedAt: at, city: 'Москва', where: 'ТЦ', pointId: 'P1', price: '150 ₽/час', link: 'https://example.org', note: 'вход с торца' },
@@ -55,6 +55,40 @@ describe('место из формы', () => {
     const result = buildParking({ ...parkingDraftOf(base), pointId: '', price: '', where: 'двор' }, base, 'другой', at)
     expect(result).toEqual({ ok: true, parking: { id: 'K1', updatedAt: at, city: 'Москва', where: 'двор', note: 'н' } })
   })
+
+  it('вид: парковка не пишется, участок и прочее — пишутся', () => {
+    expect(buildParking({ ...empty, where: 'двор', city: 'Москва' }, undefined, 'K1', at)).toEqual({
+      ok: true,
+      parking: { id: 'K1', updatedAt: at, city: 'Москва', where: 'двор' },
+    })
+    expect(buildParking({ ...empty, kind: 'road', where: 'съезд', city: 'Москва' }, undefined, 'K1', at)).toEqual({
+      ok: true,
+      parking: { id: 'K1', updatedAt: at, city: 'Москва', where: 'съезд', kind: 'road' },
+    })
+  })
+
+  it('смена вида при правке: новый пишется, парковка — поле уходит', () => {
+    const road = parking('K1', { kind: 'road' })
+    expect(parkingDraftOf(road).kind).toBe('road')
+    const other = buildParking({ ...parkingDraftOf(road), kind: 'other' }, road, 'другой', at)
+    expect(other).toEqual({ ok: true, parking: { ...road, kind: 'other' } })
+    const back = buildParking({ ...parkingDraftOf(road), kind: 'parking' }, road, 'другой', at)
+    expect(back).toEqual({ ok: true, parking: { id: 'K1', updatedAt: at, city: 'Москва', where: 'Место K1' } })
+  })
+
+  it('место без вида — парковка, правка поля не добавляет', () => {
+    const old = parking('K1')
+    expect(parkingDraftOf(old).kind).toBe('parking')
+    expect(buildParking(parkingDraftOf(old), old, 'другой', at)).toEqual({ ok: true, parking: old })
+  })
+
+  it('незнакомый вид из более новой версии — парковка на экране, правка его не стирает', () => {
+    const future = { ...parking('K1'), kind: 'ferry' } as unknown as Parking
+    expect(parkingDraftOf(future).kind).toBe('parking')
+    expect(buildParking(parkingDraftOf(future), future, 'другой', at)).toEqual({ ok: true, parking: future })
+    const road = buildParking({ ...parkingDraftOf(future), kind: 'road' }, future, 'другой', at)
+    expect(road).toEqual({ ok: true, parking: { ...future, kind: 'road' } })
+  })
 })
 
 describe('новое место', () => {
@@ -65,7 +99,7 @@ describe('новое место', () => {
 
   it('мест нет — город из последней точки; нет и точек — пусто', () => {
     expect(newParkingDraft([], [point('P2', 'Казань'), point('P1', 'Москва')]).city).toBe('Казань')
-    expect(newParkingDraft([], [])).toEqual({ where: '', city: '', pointId: '', price: '', link: '', note: '' })
+    expect(newParkingDraft([], [])).toEqual({ kind: 'parking', where: '', city: '', pointId: '', price: '', link: '', note: '' })
   })
 })
 

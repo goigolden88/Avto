@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { db } from '../app/core.ts'
 import type { Parking, ParkingVisit } from '../app/model.ts'
+import { KIND_TEXTS, kindOf, PLACE_KIND_LABELS, PLACE_KINDS, type PlaceKind } from '../modules/parking/kinds.ts'
 import {
   buildParking,
   defaultParkingId,
@@ -29,12 +30,12 @@ import {
   buildVisit,
   MISSING_PARKING,
   newVisitDraft,
-  RESULT_LABELS,
   RESULTS,
   searchLabel,
   sortVisits,
   timeOf,
   visitDraftOf,
+  withPlace,
   type VisitDraft,
 } from '../modules/parking/visits.ts'
 import { hourText } from '../modules/routes/compare.ts'
@@ -55,11 +56,19 @@ type Mode =
   | { kind: 'visit'; draft: VisitDraft; base?: ParkingVisit }
   | null
 
+/** Заголовок итога места — по виду (Р-31). */
+const STATS_TITLES: Record<PlaceKind, string> = {
+  parking: 'Когда проще встать',
+  road: 'Когда проще проехать',
+  other: 'Когда проще',
+}
+
 /**
- * Экран парковок (Р-16, Р-24): ссылкой с «Маршрутов», не вкладкой. Места —
- * по городу, у каждого «Отметить»; тап по месту открывает его (`?place=…`):
- * доли «сразу / с трудом / мест нет» с числом отметок, по часу и по дню
- * недели, медиана минут поиска и список отметок.
+ * Экран мест (Р-16, Р-24, Р-31): ссылкой с «Маршрутов», не вкладкой. Места
+ * трёх видов — парковка, участок дороги, прочее — по городу, у каждого
+ * «Отметить»; тап по месту открывает его (`?place=…`): доли трёх результатов
+ * с числом отметок, по часу и по дню недели, медиана минут и список отметок.
+ * Подписи результатов и минут — по виду места.
  *
  * Цена места — строкой справочно: деньгами не считается и в «Итоги» журнала
  * не идёт.
@@ -105,7 +114,7 @@ export function Parkings() {
   return (
     <>
       <header className="screen-head">
-        <h1>Парковки</h1>
+        <h1>Места</h1>
       </header>
 
       {error && <p className="error block">База не открылась: {error}</p>}
@@ -150,8 +159,9 @@ function Overview({ ctx, onPlace }: { ctx: Context; onPlace: (id: string) => voi
         <section className="block home-empty">
           <p>Мест пока нет.</p>
           <p className="muted">
-            Сначала заведите место — «двор за домом», «ТЦ Мега, минус первый», — потом ставьте отметки: встали сразу, с
-            трудом или мест не было. По отметкам станет видно, в какое время и в какие дни там проще встать.
+            Сначала заведите место: {PLACE_KIND_LABELS.parking} — «двор за домом», {PLACE_KIND_LABELS.road} — «съезд с
+            МКАД на Ленинский», {PLACE_KIND_LABELS.other} — «мойка у дома». Потом ставьте отметки: как встали, как
+            проехали, как вышло и сколько минут ушло. По отметкам станет видно, в какое время и в какие дни там проще.
           </p>
           <div className="row">
             <button type="button" className="btn btn--primary" onClick={addPlace}>
@@ -174,14 +184,15 @@ function Overview({ ctx, onPlace }: { ctx: Context; onPlace: (id: string) => voi
         <Fold key={group.city} id={`parkings:city:${group.city}`} title={group.city} summary={String(group.parkings.length)}>
           <ul className="plain">
             {group.parkings.map((parking) => {
+              const kind = kindOf(parking)
               const stats = parkingStats(visitsOf(parking.id, data.visits))
-              const details = [pointText(parking, names), parking.price ?? ''].filter(Boolean)
+              const details = [PLACE_KIND_LABELS[kind], pointText(parking, names), parking.price ?? ''].filter(Boolean)
               return (
                 <li key={parking.id} className="parking">
                   <button type="button" className="car parking__open" onClick={() => onPlace(parking.id)}>
                     <span className="car__name">{parking.where}</span>
-                    {details.length > 0 && <span className="muted">{details.join(' · ')}</span>}
-                    <span className="muted">{sharesText(stats)}</span>
+                    <span className="muted">{details.join(' · ')}</span>
+                    <span className="muted">{sharesText(stats, kind)}</span>
                   </button>
                   <button type="button" className="btn" onClick={() => ctx.newVisit(parking.id)}>
                     Отметить
@@ -198,12 +209,14 @@ function Overview({ ctx, onPlace }: { ctx: Context; onPlace: (id: string) => voi
 
 // ─── Место ─────────────────────────────────────────────────────────────────
 
-/** Место: что о нём известно, когда проще встать и его отметки. */
+/** Место: что о нём известно, когда проще и его отметки — словами его вида. */
 function PlaceView({ ctx, parkingId, onBack }: { ctx: Context; parkingId: string; onBack: () => void }) {
   const { data, names, open } = ctx
   const parking = sortParkings(data.parkings).find((each) => each.id === parkingId)
   const visits = sortVisits(visitsOf(parkingId, data.visits))
   const stats = parkingStats(visits)
+  const kind = kindOf(parking)
+  const texts = KIND_TEXTS[kind]
 
   return (
     <>
@@ -221,7 +234,9 @@ function PlaceView({ ctx, parkingId, onBack }: { ctx: Context; parkingId: string
         <>
           <section className="block pair-view__head">
             <h2>{parking.where}</h2>
-            <p className="muted">{[parking.city, pointText(parking, names), parking.price ?? ''].filter(Boolean).join(' · ')}</p>
+            <p className="muted">
+              {[PLACE_KIND_LABELS[kind], parking.city, pointText(parking, names), parking.price ?? ''].filter(Boolean).join(' · ')}
+            </p>
             {parking.note && <p className="muted">{parking.note}</p>}
             <div className="row row--wrap">
               <button type="button" className="btn btn--primary" onClick={() => ctx.newVisit(parking.id)}>
@@ -242,15 +257,19 @@ function PlaceView({ ctx, parkingId, onBack }: { ctx: Context; parkingId: string
             </div>
           </section>
 
-          <Fold id="parkings:place:stats" title="Когда проще встать" summary={stats.count === 0 ? NO_VISITS : visitsCount(stats.count)}>
-            <StatsBlock stats={stats} />
+          <Fold id="parkings:place:stats" title={STATS_TITLES[kind]} summary={stats.count === 0 ? NO_VISITS : visitsCount(stats.count)}>
+            <StatsBlock stats={stats} kind={kind} />
           </Fold>
 
           <Fold id="parkings:place:visits" title="Отметки" summary={String(visits.length)}>
-            {visits.length === 0 && <p className="muted">{NO_VISITS}: «Отметить», когда встанете здесь.</p>}
+            {visits.length === 0 && (
+              <p className="muted">
+                {NO_VISITS}: «Отметить», {texts.when}.
+              </p>
+            )}
             <ul className="plain entries">
               {visits.map((visit) => {
-                const search = searchLabel(visit)
+                const search = searchLabel(visit, kind)
                 return (
                   <li key={visit.id}>
                     <button
@@ -262,7 +281,7 @@ function PlaceView({ ctx, parkingId, onBack }: { ctx: Context; parkingId: string
                         <span>
                           {formatDateLoose(visit.date)} · {visit.time}
                         </span>
-                        <span className="entry__amount">{RESULT_LABELS[visit.result] ?? visit.result}</span>
+                        <span className="entry__amount">{texts.results[visit.result] ?? visit.result}</span>
                       </span>
                       {search && <span className="muted">{search}</span>}
                       {visit.note && <span className="visit__note">{visit.note}</span>}
@@ -278,22 +297,28 @@ function PlaceView({ ctx, parkingId, onBack }: { ctx: Context; parkingId: string
   )
 }
 
-/** Доли, минуты поиска, по часу и по дню недели. Отметок нет — «отметок нет», а не «0 %». */
-function StatsBlock({ stats }: { stats: ParkingStats }) {
+/** Доли, минуты, по часу и по дню недели. Отметок нет — «отметок нет», а не «0 %». */
+function StatsBlock({ stats, kind }: { stats: ParkingStats; kind: PlaceKind }) {
   const without = withoutText(stats.search)
   return (
     <>
-      <p className="route__median">{sharesText(stats)}</p>
+      <p className="route__median">{sharesText(stats, kind)}</p>
       {stats.count > 0 && (
         <>
-          <p className="totals__note">Поиск: {searchText(stats.search)}</p>
+          <p className="totals__note">
+            {KIND_TEXTS[kind].median}: {searchText(stats.search, kind)}
+          </p>
           {without && <p className="muted totals__note">{without}</p>}
 
           <h3 className="totals__head">По часу</h3>
-          <SharesTable rows={stats.byHour.map((each) => ({ key: each.hour, label: hourText(each.hour), shares: each }))} />
+          <SharesTable
+            kind={kind}
+            rows={stats.byHour.map((each) => ({ key: each.hour, label: hourText(each.hour), shares: each }))}
+          />
 
           <h3 className="totals__head">По дню недели</h3>
           <SharesTable
+            kind={kind}
             rows={stats.byWeekday.map((each) => ({ key: each.day, label: WEEKDAY_LABELS[each.day] ?? '', shares: each }))}
           />
         </>
@@ -303,7 +328,7 @@ function StatsBlock({ stats }: { stats: ParkingStats }) {
 }
 
 /** Строка — час или день: доли трёх результатов и число отметок. */
-function SharesTable({ rows }: { rows: { key: number; label: string; shares: Shares }[] }) {
+function SharesTable({ rows, kind }: { rows: { key: number; label: string; shares: Shares }[]; kind: PlaceKind }) {
   return (
     <table className="stats">
       <thead>
@@ -311,7 +336,7 @@ function SharesTable({ rows }: { rows: { key: number; label: string; shares: Sha
           <td />
           {RESULTS.map((result) => (
             <td key={result} className="num muted">
-              {RESULT_LABELS[result]}
+              {KIND_TEXTS[kind].results[result]}
             </td>
           ))}
           <td />
@@ -346,7 +371,8 @@ function Errors({ list }: { list: readonly string[] }) {
 }
 
 /**
- * Форма места: где и город обязательны; город нового — из последнего места,
+ * Форма места: вид — кнопкой, у нового — парковка; где и город
+ * обязательны; город нового — из последнего места,
  * иначе из последней точки. Точка — из своих, по желанию; удалённая на
  * другом устройстве остаётся в выборе как «точка не найдена»: иначе правка
  * молча убрала бы её. Правка отметки не трогает; удаление уносит их — после
@@ -409,6 +435,22 @@ function ParkingForm({
       }}
     >
       <h2 className="entry-form__title">{base ? 'Место' : 'Новое место'}</h2>
+      <div className="field">
+        <span>Вид</span>
+        <div className="row row--wrap" role="group" aria-label="Вид места">
+          {PLACE_KINDS.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={kind === mode.draft.kind ? 'btn btn--primary' : 'btn'}
+              aria-pressed={kind === mode.draft.kind}
+              onClick={() => onChange({ ...mode, draft: { ...mode.draft, kind } })}
+            >
+              {PLACE_KIND_LABELS[kind]}
+            </button>
+          ))}
+        </div>
+      </div>
       <label className="field">
         <span>Где</span>
         <input
@@ -490,16 +532,19 @@ function ParkingForm({
 
 /**
  * Форма отметки — новой и правки, одна и та же: место, дата (сегодня),
- * время (сейчас), результат одной кнопкой из трёх, минуты поиска и заметка
- * по желанию. Место отметки, удалённое на другом устройстве, остаётся в
- * выборе как «место не найдено».
+ * время (сейчас), результат одной кнопкой из трёх, минуты и заметка по
+ * желанию. Подписи кнопок и минут — по виду выбранного места; место другого
+ * вида сбрасывает выбранный результат. Место отметки, удалённое на другом
+ * устройстве, остаётся в выборе как «место не найдено».
  */
 function VisitForm({ initial, base, data, onDone }: { initial: VisitDraft; base?: ParkingVisit; data: ParkingsData; onDone: () => void }) {
   const [draft, setDraft] = useState(initial)
   const [tried, setTried] = useState(false)
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState('')
-  const result = buildVisit(draft, base, ulid(), nowIso())
+  const kind = kindOf(data.parkings.find((parking) => parking.id === draft.parkingId))
+  const texts = KIND_TEXTS[kind]
+  const result = buildVisit(draft, base, ulid(), nowIso(), kind)
 
   const places = parkingsByCity(data.parkings).flatMap((group) =>
     group.parkings.map((parking) => ({ id: parking.id, name: `${parking.where} · ${parking.city}` })),
@@ -532,7 +577,11 @@ function VisitForm({ initial, base, data, onDone }: { initial: VisitDraft; base?
       <h2 className="entry-form__title">{base ? 'Отметка' : 'Новая отметка'}</h2>
       <label className="field">
         <span>Место</span>
-        <select name="visit-place" value={draft.parkingId} onChange={text('parkingId')}>
+        <select
+          name="visit-place"
+          value={draft.parkingId}
+          onChange={(event) => setDraft(withPlace(draft, event.target.value, data.parkings))}
+        >
           {draft.parkingId === '' && <option value="">выберите место</option>}
           {places.map((place) => (
             <option key={place.id} value={place.id}>
@@ -542,7 +591,7 @@ function VisitForm({ initial, base, data, onDone }: { initial: VisitDraft; base?
         </select>
       </label>
 
-      <div className="row row--wrap kinds" role="group" aria-label="Как встали">
+      <div className="row row--wrap kinds" role="group" aria-label={texts.ask}>
         {RESULTS.map((each) => (
           <button
             key={each}
@@ -551,7 +600,7 @@ function VisitForm({ initial, base, data, onDone }: { initial: VisitDraft; base?
             aria-pressed={each === draft.result}
             onClick={() => setDraft({ ...draft, result: each })}
           >
-            {RESULT_LABELS[each]}
+            {texts.results[each]}
           </button>
         ))}
       </div>
@@ -565,7 +614,7 @@ function VisitForm({ initial, base, data, onDone }: { initial: VisitDraft; base?
         <input type="time" name="visit-time" value={draft.time} onChange={text('time')} />
       </label>
       <label className="field">
-        <span>Сколько минут искали — по желанию, 0 — встали без поиска</span>
+        <span>{texts.minutesField}</span>
         <input
           name="visit-minutes"
           value={draft.searchMinutes}
